@@ -1,0 +1,42 @@
+@page "/logout"
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Elevation="4" Class="pa-6" style="text-align:center;">
+        <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" class="mb-4" />
+        <MudText Typo="Typo.h5" class="mb-2">Logging out...</MudText>
+        <MudText Typo="Typo.body1">Please wait.</MudText>
+    </MudPaper>
+</MudContainer>
+
+<form id="logoutForm" method="post" action="/logout-action">
+    <noscript><button type="submit">Logout</button></noscript>
+</form>
+
+<script>
+    window.submitLogout = () => {
+        const f = document.getElementById('logoutForm');
+        if (f) f.submit();
+    };
+</script>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var uri = new Uri(Nav.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+        // After server redirect (?action=cleanup) just go to login (or home)
+        if (query.TryGetValue("action", out var action) && action == "cleanup")
+        {
+            Nav.NavigateTo("/login", forceLoad: true);
+            return;
+        }
+
+        // First phase: submit logout form
+        await JS.InvokeVoidAsync("submitLogout");
+    }
+}

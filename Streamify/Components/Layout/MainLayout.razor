@@ -1,0 +1,168 @@
+﻿@using Streamify.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inherits LayoutComponentBase
+@inject IThemeService ThemeService
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject StreamifyDbContext Db
+@implements IDisposable
+
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="4">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="_ => ToggleDrawer()" />
+        <MudText Typo="Typo.h5" Class="ml-2">Streamify</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.DarkMode : Icons.Material.Filled.LightMode)"
+                       Color="Color.Inherit"
+                       OnClick="_ => ToggleThemeAsync()" />
+        <AuthorizeView>
+            <Authorized>
+                <MudMenu Label="@_userDisplay" EndIcon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit">
+                    <MudMenuItem Href="/account">Account</MudMenuItem>
+                    <MudMenuItem Href="/settings">Settings</MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Href="/logout">
+                        <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mr-2" /> Logout
+                    </MudMenuItem>
+                </MudMenu>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/login" StartIcon="@Icons.Material.Filled.Login" Class="login-btn">
+                    Login
+                </MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md" Elevation="1" ClipMode="DrawerClipMode.Never">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6" Class="ml-2">Navigation</MudText>
+        </MudDrawerHeader>
+
+        <NavMenu />
+
+        <MudDivider Class="my-2" />
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.False" Class="pa-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private MudTheme _theme = new();
+    private bool _isDarkMode;
+    private bool _drawerOpen = true;
+    private bool _initialized;
+    private string _userDisplay = "Account";
+
+    protected override void OnInitialized()
+    {
+        var uri = new Uri(Nav.Uri);
+        var q = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (q.TryGetValue("login", out var v) && v == "success")
+        {
+            Snackbar.Add("Login successful.", Severity.Success);
+            Nav.NavigateTo("/", replace: true);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        ThemeService.ThemeChanged += OnExternalThemeChanged;
+        await SyncAuthAndThemeAsync();
+        _initialized = true;
+    }
+
+    private async Task<string> ResolveUserDisplayAsync(ClaimsPrincipal user)
+    {
+        var idStr = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(idStr, out var id))
+        {
+            var dbUser = await Db.Users.FindAsync(id);
+            if (!string.IsNullOrWhiteSpace(dbUser?.Name))
+                return dbUser.Name;
+        }
+        return user.Identity?.Name ?? "User";
+    }
+
+    private async Task SyncAuthAndThemeAsync()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        if (auth.User.Identity?.IsAuthenticated == true)
+        {
+            _userDisplay = await ResolveUserDisplayAsync(auth.User);
+            _isDarkMode = await ThemeService.GetUserDarkModePreferenceAsync();
+        }
+        else
+        {
+            _userDisplay = "Account";
+            _isDarkMode = false;
+        }
+        StateHasChanged();
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task ToggleThemeAsync()
+    {
+        _isDarkMode = !_isDarkMode;
+        await PersistThemeIfAuthenticatedAsync();
+    }
+
+    private async Task OnThemeSwitchChanged(bool value)
+    {
+        if (!_initialized) return;
+        _isDarkMode = value;
+        await PersistThemeIfAuthenticatedAsync();
+    }
+
+    private async Task PersistThemeIfAuthenticatedAsync()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        if (auth.User.Identity?.IsAuthenticated == true)
+            await ThemeService.SetUserDarkModePreferenceAsync(_isDarkMode);
+    }
+
+    private async void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        try
+        {
+            var state = await task;
+            if (state.User.Identity?.IsAuthenticated == true)
+            {
+                _userDisplay = await ResolveUserDisplayAsync(state.User);
+                _isDarkMode = await ThemeService.GetUserDarkModePreferenceAsync();
+            }
+            else
+            {
+                _userDisplay = "Account";
+                _isDarkMode = false;
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { }
+    }
+
+    private void OnExternalThemeChanged(bool dark)
+    {
+        _isDarkMode = dark;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AuthProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+        ThemeService.ThemeChanged -= OnExternalThemeChanged;
+    }
+}

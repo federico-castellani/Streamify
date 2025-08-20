@@ -1,0 +1,105 @@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Elevation="4" Class="pa-6">
+        <MudText Typo="Typo.h4" Align="Align.Center" Class="mb-6">Accesso</MudText>
+
+        <EditForm Model="@loginModel" OnValidSubmit="SubmitToServer" FormName="Login" @rendermode="InteractiveServer">
+            <DataAnnotationsValidator />
+
+            <MudTextField Label="Email" @bind-Value="loginModel.Email" Variant="Variant.Outlined" Class="mb-4" />
+            <MudTextField Label="Password"
+                          @bind-Value="loginModel.Password"
+                          InputType="@(_showPassword ? InputType.Text : InputType.Password)"
+                          Variant="Variant.Outlined"
+                          Class="mb-4"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@(_showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                          OnAdornmentClick="@TogglePasswordVisibility" />
+
+            <MudCheckBox T="bool" @bind-Value="loginModel.RememberMe" Color="Color.Primary" Class="mb-4">Ricordami</MudCheckBox>
+
+            <MudButton 
+                ButtonType="ButtonType.Submit" 
+                Variant="Variant.Filled" Color="Color.Primary" 
+                StartIcon="@Icons.Material.Filled.Login" 
+                Disabled="@isLoading" 
+                FullWidth="true">
+                @if (isLoading)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Accedi
+            </MudButton>
+        </EditForm>
+
+        <MudDivider Class="my-4" />
+
+        <MudText Typo="Typo.body2" Align="Align.Center">
+            Non hai un account?
+            <MudLink Href="/register">Registrati qui</MudLink>
+        </MudText>
+
+        <form id="serverLoginForm" method="post" action="/login-action" style="display:none;">
+            <input type="hidden" name="email" id="hiddenEmail" />
+            <input type="hidden" name="password" id="hiddenPassword" />
+            <input type="hidden" name="rememberMe" id="hiddenRemember" />
+        </form>
+    </MudPaper>
+</MudContainer>
+
+<script>
+    window.submitLoginForm = (data) => {
+        document.getElementById('hiddenEmail').value = data.email;
+        document.getElementById('hiddenPassword').value = data.password;
+        document.getElementById('hiddenRemember').value = data.rememberMe;
+        document.getElementById('serverLoginForm').submit();
+    };
+</script>
+
+@code {
+    private LoginModel loginModel = new();
+    private bool isLoading;
+    private bool _showPassword;
+
+    protected override void OnInitialized()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var q = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (q.TryGetValue("error", out var e))
+            Snackbar.Add(Uri.UnescapeDataString(e!), Severity.Error);
+    }
+
+    private void TogglePasswordVisibility() => _showPassword = !_showPassword;
+
+    private async Task SubmitToServer()
+    {
+        isLoading = true;
+        try
+        {
+            await JS.InvokeVoidAsync("submitLoginForm", new
+            {
+                email = loginModel.Email,
+                password = loginModel.Password,
+                rememberMe = loginModel.RememberMe
+            });
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    public class LoginModel
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+        [Required]
+        public string Password { get; set; } = "";
+        public bool RememberMe { get; set; }
+    }
+}

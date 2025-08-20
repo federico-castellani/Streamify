@@ -1,0 +1,12 @@
+﻿<MudNavMenu Rounded="true" Bordered="true">
+    
+    <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    
+    <AuthorizeView Roles="Admin">
+        <Authorized>
+            <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Utenti</MudNavLink>
+            <MudNavLink Href="/admin/add-media" Icon="@Icons.Material.Filled.Add">Aggiungi Film o Serie TV</MudNavLink>
+        </Authorized>
+    </AuthorizeView>
+    
+</MudNavMenu>

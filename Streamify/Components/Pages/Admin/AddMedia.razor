@@ -1,0 +1,631 @@
+@page "/admin/add-media"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Streamify.Data
+@using Streamify.TMDB
+@using MudBlazor
+@attribute [Authorize(Roles="Admin")]
+
+@inject ITmdbClient Tmdb
+@inject StreamifyDbContext Db
+@inject ISnackbar Snackbar
+
+<PageTitle>Aggiungi Media</PageTitle>
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudGrid GutterSize="16px">
+        <MudItem xs="12">
+            <MudText Typo="Typo.h5" Class="mb-2">Aggiungi Media</MudText>
+
+            <MudAutocomplete T="TmdbSearchResult"
+                             Value="_selectedSearch"
+                             ValueChanged="OnSearchSelected"
+                             Dense="true"
+                             ResetValueOnEmptyText="false"
+                             Clearable="true"
+                             Label="Cerca Film o Serie"
+                             Variant="Variant.Outlined"
+                             SearchFunc="SearchFunc"
+                             ToStringFunc="@(r => r?.Title ?? string.Empty)"
+                             DebounceInterval="250"
+                             Class="max-width-600"
+                             Adornment="Adornment.Start"
+                             AdornmentIcon="@Icons.Material.Outlined.Search"
+                             CoerceText="true">
+                <ItemTemplate Context="item">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="pa-1">
+                        <MudStack Class="mr-2" Style="width:50px">
+                            @if (!string.IsNullOrWhiteSpace(item.PosterPath))
+                            {
+                                <MudImage Src="@PosterUrl(item.PosterPath, 92)"
+                                          Alt="@item.Title"
+                                          Width="46"
+                                          Height="69"
+                                          Elevation="1"
+                                          Class="rounded"
+                                          Style="object-fit:cover;border-radius:4px" />
+                            }
+                            else
+                            {
+                                <MudPaper Class="d-flex align-center justify-center"
+                                          Elevation="0"
+                                          Style="width:46px;height:69px;border:1px solid #e0e0e0;border-radius:4px">
+                                    <MudIcon Icon="@Icons.Material.Outlined.Movie" Size="Size.Small" />
+                                </MudPaper>
+                            }
+                        </MudStack>
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.body2">@item.Title</MudText>
+                            @if (!string.IsNullOrWhiteSpace(item.Overview))
+                            {
+                                <MudText Typo="Typo.caption"
+                                         Class="text-secondary"
+                                         Truncate="true"
+                                         Style="max-width:260px">
+                                    @item.Overview
+                                </MudText>
+                            }
+                        </MudStack>
+                    </MudStack>
+                </ItemTemplate>
+            </MudAutocomplete>
+        </MudItem>
+
+        @if (_selectedSearch is not null)
+        {
+            <MudItem xs="12" md="4" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        @if (SelectedPosterUrl is not null)
+                        {
+                            <MudImage Src="@SelectedPosterUrl"
+                                      Alt="@_displayTitle"/>
+                        }
+                        else
+                        {
+                            <MudSkeleton Width="100%" Height="300px" Animation="Animation.Pulse" />
+                        }
+
+                        <MudText Typo="Typo.subtitle1" Class="mt-2">@_displayTitle</MudText>
+
+                        <MudChipSet T="string" Class="mt-2" ReadOnly="true">
+                            @if (_isMovie)
+                            {
+                                <MudChip T="string" Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small">Film</MudChip>
+                                @if (_movieRuntime is not null)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@($"{_movieRuntime} min")</MudChip>
+                                }
+                                @if (_movieRelease is not null)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@_movieRelease?.ToString("yyyy")</MudChip>
+                                }
+                            }
+                            else if (_isSeries && _seriesDetail is not null)
+                            {
+                                <MudChip T="string" Color="Color.Secondary" Variant="Variant.Filled" Size="Size.Small">Serie</MudChip>
+                                @if (_seriesDetail.NumberOfSeasons is not null)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@($"{_seriesDetail.NumberOfSeasons} stagioni")</MudChip>
+                                }
+                            }
+                        </MudChipSet>
+                    </MudCardContent>
+                </MudCard>
+
+                <MudPaper Class="pa-3 mt-4" Elevation="1">
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">File</MudText>
+                    <MudTextField @bind-Value="_mediaPath"
+                                  Label="Percorso file"
+                                  Variant="Variant.Outlined"
+                                  Required="true"
+                                  Placeholder="/mnt/media/file.mp4"
+                                  StartIcon="@Icons.Material.Outlined.Folder"
+                                  Immediate="true" />
+                    
+                    @if (_isSeries && _selectedEpisodeNumber > 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Class="mt-2" Dense="true">
+                            Episodio selezionato: S@(_selectedSeason)E@(_selectedEpisodeNumber)
+                            @if (!string.IsNullOrEmpty(_selectedEpisodeName))
+                            {
+                                <text> - @_selectedEpisodeName</text>
+                            }
+                        </MudAlert>
+                    }
+                    
+                    <MudDivider Class="my-2" />
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Disabled="@(!_canSave || _saving)"
+                               OnClick="Save"
+                               StartIcon="@Icons.Material.Filled.Save">
+                        @(_saving ? "Salvataggio..." : "Salva")
+                    </MudButton>
+                    @if (!_canSave && !_saving)
+                    {
+                        <MudTooltip Text="Compila i campi richiesti.">
+                            <MudIconButton Icon="@Icons.Material.Outlined.Info" Color="Color.Default" />
+                        </MudTooltip>
+                    }
+                    <MudProgressLinear Indeterminate="true"
+                                       Class="@(_saving ? "mt-2" : "d-none")"
+                                       Color="Color.Primary" />
+                </MudPaper>
+
+                @if (_existingMediaFiles.Any())
+                {
+                    <MudExpansionPanels Class="mt-4">
+                        <MudExpansionPanel>
+                            <TitleContent>
+                                <MudText Typo="Typo.subtitle2">File esistenti (@_existingMediaFiles.Count)</MudText>
+                            </TitleContent>
+                            <ChildContent>
+                                <MudList T="MediaFile" Dense="true" Class="py-0">
+                                    @foreach (var f in _existingMediaFiles)
+                                    {
+                                        <MudListItem T="MediaFile">
+                                            <MudListItemIcon>
+                                                <MudIcon Icon="@Icons.Material.Outlined.Movie" />
+                                            </MudListItemIcon>
+                                            <MudListItemText>@f.FilePath</MudListItemText>
+                                        </MudListItem>
+                                    }
+                                </MudList>
+                            </ChildContent>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
+            </MudItem>
+
+            <MudItem xs="12" md="8" lg="9">
+                <MudTabs Rounded="true" Elevation="1" DisableRipple="true">
+                    <MudTabPanel Text="Dettagli">
+                        <MudStack Spacing="3">
+                            @if (_isMovie)
+                            {
+                                <MudPaper Class="pa-3" Elevation="0">
+                                    <MudText Typo="Typo.subtitle2" Class="mb-2">Film</MudText>
+                                    <MudTextField @bind-Value="_movieTitle"
+                                                  Label="Titolo"
+                                                  Variant="Variant.Outlined"
+                                                  Dense="true" />
+                                    <MudNumericField T="int?" Value="_movieRuntime"
+                                                     ValueChanged="@(v => _movieRuntime = v)"
+                                                     Label="Durata (min)"
+                                                     Variant="Variant.Outlined"
+                                                     Dense="true" />
+                                    <MudDatePicker @bind-Date="_movieRelease"
+                                                   Label="Data uscita"
+                                                   Variant="Variant.Outlined"
+                                                   Dense="true"
+                                                   Culture="@System.Globalization.CultureInfo.GetCultureInfo("it-IT")"
+                                                   DateFormat="dd/MM/yyyy" />
+                                </MudPaper>
+                            }
+                            else if (_isSeries && _seriesDetail is not null)
+                            {
+                                <MudPaper Class="pa-3" Elevation="0">
+                                    <MudText Typo="Typo.subtitle2" Class="mb-2">Serie</MudText>
+
+                                    <MudTextField @bind-Value="_seriesTitle"
+                                                  Label="Titolo"
+                                                  Variant="Variant.Outlined"
+                                                  Dense="true" />
+
+                                    <MudSelect T="int"
+                                               Value="_selectedSeason"
+                                               ValueChanged="OnSeasonChanged"
+                                               Label="Stagione"
+                                               Dense="true"
+                                               Variant="Variant.Outlined">
+                                        <MudSelectItem Value="0">(seleziona)</MudSelectItem>
+                                        @foreach (var s in _seriesDetail.SeasonNumbers)
+                                        {
+                                            <MudSelectItem Value="@s">@s</MudSelectItem>
+                                        }
+                                    </MudSelect>
+
+                                    @if (_selectedSeason > 0)
+                                    {
+                                        <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Episodi</MudText>
+                                        <MudTable T="TmdbEpisodeRow"
+                                                  Items="_episodeRows"
+                                                  Dense="true"
+                                                  Hover="false"
+                                                  Bordered="true"
+                                                  Striped="false">
+                                            <HeaderContent>
+                                                <MudTh>#</MudTh>
+                                                <MudTh>Titolo</MudTh>
+                                                <MudTh>Durata</MudTh>
+                                                <MudTh>Stato</MudTh>
+                                                <MudTh>Azione</MudTh>
+                                            </HeaderContent>
+                                            <RowTemplate>
+                                                <MudTd DataLabel="#">@context.Number</MudTd>
+                                                <MudTd DataLabel="Titolo">@context.Name</MudTd>
+                                                <MudTd DataLabel="Durata">
+                                                    @if (context.Runtime is not null)
+                                                    {
+                                                        @($"{context.Runtime} min")
+                                                    }
+                                                </MudTd>
+                                                <MudTd DataLabel="Stato">
+                                                    @EpisodeStatusChip(context)
+                                                </MudTd>
+                                                <MudTd DataLabel="Azione">
+                                                    @if (context.HasFile)
+                                                    {
+                                                        <MudButton Size="Size.Small" 
+                                                                   Variant="Variant.Text" 
+                                                                   Color="Color.Default" 
+                                                                   Disabled="true">
+                                                            Già importato
+                                                        </MudButton>
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudButton Size="Size.Small" 
+                                                                   Variant="@(_selectedEpisodeNumber == context.Number ? Variant.Filled : Variant.Outlined)" 
+                                                                   Color="@(_selectedEpisodeNumber == context.Number ? Color.Primary : Color.Default)"
+                                                                   OnClick="@(() => SelectEpisodeFromRow(context.Number))"
+                                                                   Style="@(_selectedEpisodeNumber == context.Number ? "background-color: var(--mud-palette-primary) !important; color: white !important;" : "")">
+                                                            @(_selectedEpisodeNumber == context.Number ? "Selezionato" : "Seleziona")
+                                                        </MudButton>
+                                                    }
+                                                </MudTd>
+                                            </RowTemplate>
+                                        </MudTable>
+                                    }
+                                </MudPaper>
+                            }
+                        </MudStack>
+                    </MudTabPanel>
+
+                    <MudTabPanel Text="JSON TMDB" Disabled="@(_selectedSearch == null)">
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                            Dati grezzi da TMDB
+                        </MudAlert>
+                        <pre class="mt-2 p-3 bg-gray-100 rounded overflow-auto"><code>@_debugJson</code></pre>
+                    </MudTabPanel>
+                </MudTabs>
+            </MudItem>
+        }
+    </MudGrid>
+</MudPaper>
+
+@code {
+    private TmdbSearchResult? _selectedSearch;
+    private bool _isMovie;
+    private bool _isSeries;
+    private bool _saving;
+
+    private string? _movieTitle;
+    private int? _movieRuntime;
+    private DateTime? _movieRelease;
+
+    private string? _seriesTitle;
+    private TmdbSeriesDetail? _seriesDetail;
+    private Series? _seriesEntity;
+    private int _selectedSeason;
+    private List<TmdbEpisodeInfo>? _episodesInSeason;
+    private int _selectedEpisodeNumber;
+    private int? _selectedEpisodeRuntime;
+    private string? _selectedEpisodeName;
+
+    private string? _selectedPosterPath;
+    private string? _mediaPath;
+
+    private Movie? _existingMovie;
+    private bool _selectedEpisodeExists;
+    private bool _selectedEpisodeHasFile;
+
+    private readonly List<MediaFile> _existingMediaFiles = new();
+    private List<TmdbEpisodeRow> _episodeRows = new();
+
+    private string _debugJson = "";
+    private string _displayTitle => _isMovie ? (_movieTitle ?? _selectedSearch?.Title ?? "") : (_seriesTitle ?? _selectedSearch?.Title ?? "");
+
+    private bool _canSave =>
+        !string.IsNullOrWhiteSpace(_mediaPath)
+        && !_saving
+        && (
+            (_isMovie && _existingMovie == null)
+            || (_isSeries && _selectedSeason > 0 && _selectedEpisodeNumber > 0 && !_selectedEpisodeHasFile)
+        );
+
+    private string PosterUrl(string? path, int width)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "https://via.placeholder.com/92x138?text=No+Img";
+        var clean = path.StartsWith('/') ? path : "/" + path;
+        return $"https://image.tmdb.org/t/p/w{width}{clean}";
+    }
+
+    private string? SelectedPosterUrl
+        => string.IsNullOrEmpty(_selectedPosterPath) ? null : PosterUrl(_selectedPosterPath, 342);
+
+    private async Task<IEnumerable<TmdbSearchResult>> SearchFunc(string value, CancellationToken cancellationToken)
+        => await Tmdb.SearchAsync(value, cancellationToken);
+
+    private async Task OnSearchSelected(TmdbSearchResult? result)
+    {
+        Reset(false);
+        _selectedSearch = result;
+        _selectedPosterPath = result?.PosterPath;
+
+        if (result == null)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        var opts = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+
+        if (result.IsSeries)
+        {
+            _isSeries = true;
+            _seriesDetail = await Tmdb.GetSeriesAsync(result.Id);
+            _seriesTitle = _seriesDetail?.Name;
+            await LoadExistingSeriesState();
+            _debugJson = _seriesDetail is null ? "" : System.Text.Json.JsonSerializer.Serialize(_seriesDetail, opts);
+        }
+        else
+        {
+            _isMovie = true;
+            var movieDetail = await Tmdb.GetMovieAsync(result.Id);
+            if (movieDetail != null)
+            {
+                _movieTitle = movieDetail.Title;
+                _movieRuntime = movieDetail.Runtime;
+                _movieRelease = movieDetail.ReleaseDate;
+                _debugJson = System.Text.Json.JsonSerializer.Serialize(movieDetail, opts);
+            }
+            await LoadExistingMovieState();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadExistingMovieState()
+    {
+        if (_selectedSearch == null) return;
+        _existingMediaFiles.Clear();
+        _existingMovie = await Db.Movies
+            .Include(m => m.MediaFiles)
+            .FirstOrDefaultAsync(m => m.TmdbId == _selectedSearch.Id);
+        if (_existingMovie != null)
+            _existingMediaFiles.AddRange(_existingMovie.MediaFiles);
+    }
+
+    private async Task LoadExistingSeriesState()
+    {
+        if (_seriesDetail == null) return;
+        _existingMediaFiles.Clear();
+        _seriesEntity = await Db.Series
+            .Include(s => s.Episodes)
+                .ThenInclude(e => e.MediaFile)
+            .FirstOrDefaultAsync(s => s.TmdbId == _seriesDetail.Id);
+
+        if (_seriesEntity != null)
+        {
+            foreach (var ep in _seriesEntity.Episodes.Where(e => e.MediaFile != null))
+                _existingMediaFiles.Add(ep.MediaFile!);
+        }
+    }
+
+    private async Task OnSeasonChanged(int season)
+    {
+        _selectedSeason = season;
+        _selectedEpisodeNumber = 0;
+        _selectedEpisodeRuntime = null;
+        _selectedEpisodeName = null;
+        _selectedEpisodeExists = false;
+        _selectedEpisodeHasFile = false;
+        _episodeRows.Clear();
+
+        if (_seriesDetail == null || season <= 0) return;
+
+        var seasonDetail = await Tmdb.GetSeasonAsync(_seriesDetail.Id, season);
+        _episodesInSeason = seasonDetail?.Episodes.ToList() ?? new List<TmdbEpisodeInfo>();
+
+        BuildEpisodeRows();
+        StateHasChanged();
+    }
+
+    private void BuildEpisodeRows()
+    {
+        _episodeRows = _episodesInSeason?
+            .Select(e =>
+            {
+                var existing = _seriesEntity?.Episodes.FirstOrDefault(x =>
+                    x.SeasonNumber == _selectedSeason && x.EpisodeNumber == e.EpisodeNumber);
+                return new TmdbEpisodeRow(
+                    e.EpisodeNumber,
+                    e.Name,
+                    e.Runtime,
+                    existing != null,
+                    existing?.MediaFile != null
+                );
+            })
+            .OrderBy(r => r.Number)
+            .ToList()
+            ?? new List<TmdbEpisodeRow>();
+    }
+
+    private void SelectEpisodeFromRow(int number)
+    {
+        _selectedEpisodeNumber = number;
+        UpdateEpisodeSelectionState();
+    }
+
+    private void UpdateEpisodeSelectionState()
+    {
+        var episodeInfo = _episodesInSeason?
+            .FirstOrDefault(e => e.EpisodeNumber == _selectedEpisodeNumber);
+            
+        _selectedEpisodeRuntime = episodeInfo?.Runtime;
+        _selectedEpisodeName = episodeInfo?.Name;
+
+        var existing = _seriesEntity?.Episodes.FirstOrDefault(x =>
+            x.SeasonNumber == _selectedSeason && x.EpisodeNumber == _selectedEpisodeNumber);
+
+        _selectedEpisodeExists = existing != null;
+        _selectedEpisodeHasFile = existing?.MediaFile != null;
+
+        StateHasChanged();
+    }
+
+    private RenderFragment EpisodeStatusChip(TmdbEpisodeRow row) => builder =>
+    {
+        var seq = 0;
+        if (row.HasFile)
+        {
+            builder.OpenComponent<MudChip<string>>(seq++);
+            builder.AddAttribute(seq++, "Text", "Importato");
+            builder.AddAttribute(seq++, "Color", Color.Error);
+            builder.AddAttribute(seq++, "Variant", Variant.Filled);
+            builder.CloseComponent();
+        }
+        else if (row.Exists)
+        {
+            builder.OpenComponent<MudChip<string>>(seq++);
+            builder.AddAttribute(seq++, "Text", "Senza file");
+            builder.AddAttribute(seq++, "Color", Color.Warning);
+            builder.AddAttribute(seq++, "Variant", Variant.Outlined);
+            builder.CloseComponent();
+        }
+        else
+        {
+            builder.OpenComponent<MudChip<string>>(seq++);
+            builder.AddAttribute(seq++, "Text", "Nuovo");
+            builder.AddAttribute(seq++, "Color", Color.Success);
+            builder.AddAttribute(seq++, "Variant", Variant.Outlined);
+            builder.CloseComponent();
+        }
+    };
+
+    private async Task Save()
+    {
+        if (!_canSave) return;
+
+        _saving = true;
+        try
+        {
+            if (_isMovie && _selectedSearch != null)
+            {
+                var existingMovie = await Db.Movies.FirstOrDefaultAsync(m => m.TmdbId == _selectedSearch.Id);
+                if (existingMovie != null)
+                {
+                    Snackbar.Add("Film già presente.", Severity.Warning);
+                    return;
+                }
+
+                var movie = new Movie
+                {
+                    TmdbId = _selectedSearch.Id,
+                    Title = _movieTitle ?? _selectedSearch.Title,
+                    DurationMinutes = _movieRuntime,
+                    ReleaseDate = _movieRelease
+                };
+                Db.Movies.Add(movie);
+                Db.MediaFiles.Add(new MediaFile { FilePath = _mediaPath!, Movie = movie });
+            }
+            else if (_isSeries && _seriesDetail != null && _selectedSeason > 0 && _selectedEpisodeNumber > 0)
+            {
+                var series = await Db.Series.FirstOrDefaultAsync(s => s.TmdbId == _seriesDetail.Id);
+                if (series == null)
+                {
+                    series = new Series
+                    {
+                        TmdbId = _seriesDetail.Id,
+                        Title = _seriesTitle!
+                    };
+                    Db.Series.Add(series);
+                    await Db.SaveChangesAsync();
+                }
+
+                var episode = await Db.Episodes
+                    .Include(e => e.MediaFile)
+                    .FirstOrDefaultAsync(e =>
+                        e.SeriesId == series.SeriesId &&
+                        e.SeasonNumber == _selectedSeason &&
+                        e.EpisodeNumber == _selectedEpisodeNumber);
+
+                if (episode != null)
+                {
+                    if (episode.MediaFile != null)
+                    {
+                        Snackbar.Add("Episodio già importato.", Severity.Warning);
+                        return;
+                    }
+                    Db.MediaFiles.Add(new MediaFile { FilePath = _mediaPath!, Episode = episode });
+                }
+                else
+                {
+                    var epInfo = _episodesInSeason?.FirstOrDefault(e => e.EpisodeNumber == _selectedEpisodeNumber);
+                    episode = new Episode
+                    {
+                        SeriesId = series.SeriesId,
+                        Series = series,
+                        SeasonNumber = _selectedSeason,
+                        EpisodeNumber = _selectedEpisodeNumber,
+                        Title = epInfo?.Name ?? $"Episodio {_selectedEpisodeNumber}",
+                        DurationMinutes = epInfo?.Runtime
+                    };
+                    Db.Episodes.Add(episode);
+                    Db.MediaFiles.Add(new MediaFile { FilePath = _mediaPath!, Episode = episode });
+                }
+            }
+            else
+            {
+                Snackbar.Add("Dati mancanti.", Severity.Error);
+                return;
+            }
+
+            await Db.SaveChangesAsync();
+            Snackbar.Add("Salvato.", Severity.Success);
+            Reset();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void Reset(bool clearSearch = true)
+    {
+        if (clearSearch)
+        {
+            _selectedSearch = null;
+            _selectedPosterPath = null;
+        }
+        _isMovie = _isSeries = false;
+        _movieTitle = null;
+        _movieRuntime = null;
+        _movieRelease = null;
+        _seriesTitle = null;
+        _seriesDetail = null;
+        _seriesEntity = null;
+        _episodesInSeason = null;
+        _selectedSeason = 0;
+        _selectedEpisodeNumber = 0;
+        _selectedEpisodeRuntime = null;
+        _selectedEpisodeName = null;
+        _existingMovie = null;
+        _existingMediaFiles.Clear();
+        _selectedEpisodeExists = false;
+        _selectedEpisodeHasFile = false;
+        _episodeRows.Clear();
+        _mediaPath = null;
+        _debugJson = "";
+        StateHasChanged();
+    }
+
+    private record TmdbEpisodeRow(int Number, string Name, int? Runtime, bool Exists, bool HasFile);
+}

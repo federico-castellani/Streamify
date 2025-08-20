@@ -1,0 +1,273 @@
+@page "/account"
+@attribute [Authorize]
+@using System.Security.Claims
+@using System.ComponentModel.DataAnnotations
+@using Streamify.Services
+@using Microsoft.AspNetCore.Authorization
+@using MudBlazor
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject StreamifyDbContext Db
+@inject ILoginService LoginService
+@inject IWebHostEnvironment Env
+@inject IHttpContextAccessor HttpCtx
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Elevation="4" Class="pa-6">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+            <MudIcon Icon="Icons.Material.Filled.ManageAccounts" Color="Color.Primary" Size="Size.Large" />
+            <MudText Typo="Typo.h5" Class="ml-2">Account</MudText>
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="GoLogout">
+                <MudIcon Icon="Icons.Material.Filled.Logout" Class="mr-1" />
+                Logout
+            </MudButton>
+        </MudStack>
+
+        @if (_unauthorized)
+        {
+            <MudAlert Severity="Severity.Warning">Not authenticated. Redirecting...</MudAlert>
+        }
+        else if (_principal == null)
+        {
+            <MudProgressCircular Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudPaper Class="pa-4" Elevation="1">
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Edit Profile</MudText>
+                    <EditForm Model="_profileModel" OnValidSubmit="SaveProfileAsync">
+                        <DataAnnotationsValidator />
+                        <MudTextField Label="Name" @bind-Value="_profileModel.Name" Variant="Variant.Outlined" Class="mb-3" />
+                        <MudTextField Label="Email" @bind-Value="_profileModel.Email" Variant="Variant.Outlined" Class="mb-3" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_savingProfile">
+                            @if (_savingProfile)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            }
+                            Save
+                        </MudButton>
+                    </EditForm>
+                </MudPaper>
+
+                <MudPaper Class="pa-4" Elevation="1">
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Change Password</MudText>
+                    <EditForm Model="_passwordModel" OnValidSubmit="ChangePasswordAsync">
+                        <DataAnnotationsValidator />
+                        <MudTextField Label="Current Password"
+                                      @bind-Value="_passwordModel.CurrentPassword"
+                                      InputType="@(_showCurrent ? InputType.Text : InputType.Password)"
+                                      Variant="Variant.Outlined"
+                                      Class="mb-3"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showCurrent ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="@(()=> _showCurrent = !_showCurrent)" />
+                        <MudTextField Label="New Password"
+                                      @bind-Value="_passwordModel.NewPassword"
+                                      InputType="@(_showNew ? InputType.Text : InputType.Password)"
+                                      Variant="Variant.Outlined"
+                                      Class="mb-3"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showNew ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="@(()=> _showNew = !_showNew)" />
+                        <MudTextField Label="Confirm New Password"
+                                      @bind-Value="_passwordModel.ConfirmPassword"
+                                      InputType="@(_showConfirm ? InputType.Text : InputType.Password)"
+                                      Variant="Variant.Outlined"
+                                      Class="mb-3"
+                                      Adornment="Adornment.End"
+                                      AdornmentIcon="@(_showConfirm ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                      OnAdornmentClick="@(()=> _showConfirm = !_showConfirm)" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Secondary" Disabled="@_changingPassword">
+                            @if (_changingPassword)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            }
+                            Update Password
+                        </MudButton>
+                    </EditForm>
+                </MudPaper>
+            </MudStack>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private ClaimsPrincipal? _principal;
+    private string _userId = "";
+    private string _email = "";
+    private string _name = "";
+    private DateTimeOffset? _loginTimeUtc;
+    private string _loginTimeUtcDisplay = "";
+    private string _sessionAgeDisplay = "";
+    private bool _unauthorized;
+    private bool _savingProfile;
+    private bool _changingPassword;
+
+    private bool _showCurrent;
+    private bool _showNew;
+    private bool _showConfirm;
+
+    private ProfileModel _profileModel = new();
+    private PasswordModel _passwordModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        if (_unauthorized)
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(500);
+                Nav.NavigateTo("/login");
+            });
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _principal = (await AuthProvider.GetAuthenticationStateAsync()).User;
+        if (!(_principal?.Identity?.IsAuthenticated ?? false))
+        {
+            _unauthorized = true;
+            return;
+        }
+
+        _userId = _principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "";
+        _email = _principal.FindFirst(ClaimTypes.Name)?.Value ?? "";
+
+        if (int.TryParse(_userId, out var id))
+        {
+            var user = await Db.Users.FindAsync(id);
+            if (user != null)
+            {
+                _name = user.Name ?? "";
+                _email = user.Email;
+                _profileModel.Name = _name;
+                _profileModel.Email = _email;
+            }
+        }
+
+        if (long.TryParse(_principal.FindFirst("login_time")?.Value, out var ts))
+        {
+            _loginTimeUtc = DateTimeOffset.FromUnixTimeSeconds(ts);
+            _loginTimeUtcDisplay = _loginTimeUtc?.ToString("u") ?? "";
+            var age = DateTimeOffset.UtcNow - _loginTimeUtc;
+            _sessionAgeDisplay = age.HasValue ? FormatDuration(age.Value) : "";
+        }
+    }
+
+    private string FormatDuration(TimeSpan ts)
+    {
+        if (ts.TotalSeconds < 60) return $"{(int)ts.TotalSeconds}s";
+        if (ts.TotalMinutes < 60) return $"{(int)ts.TotalMinutes}m {ts.Seconds}s";
+        if (ts.TotalHours < 24) return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+        return $"{(int)ts.TotalDays}d {ts.Hours}h";
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        if (!int.TryParse(_userId, out var id)) return;
+        _savingProfile = true;
+        try
+        {
+            var user = await Db.Users.FindAsync(id);
+            if (user == null)
+            {
+                Snackbar.Add("User not found", Severity.Error);
+                return;
+            }
+
+            var emailChanged = !string.Equals(user.Email, _profileModel.Email, StringComparison.OrdinalIgnoreCase);
+            user.Name = _profileModel.Name?.Trim() ?? "";
+            user.Email = _profileModel.Email.Trim();
+            await Db.SaveChangesAsync();
+
+            _name = user.Name ?? "";
+            _email = user.Email;
+
+            if (emailChanged)
+            {
+                var token = LoginService.GenerateToken(user.Id, user.Email, user.Role);
+                var ctx = HttpCtx.HttpContext;
+                if (ctx != null)
+                    LoginService.SetAuthCookie(ctx, token, Env, rememberMe: false);
+                Nav.NavigateTo("/account", forceLoad: true);
+            }
+            else
+            {
+                Snackbar.Add("Profile updated", Severity.Success);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Profile update failed", Severity.Error);
+        }
+        finally
+        {
+            _savingProfile = false;
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        if (!int.TryParse(_userId, out var id)) return;
+        if (_passwordModel.NewPassword != _passwordModel.ConfirmPassword)
+        {
+            Snackbar.Add("Passwords do not match", Severity.Error);
+            return;
+        }
+
+        _changingPassword = true;
+        try
+        {
+            var user = await Db.Users.FindAsync(id);
+            if (user == null)
+            {
+                Snackbar.Add("User not found", Severity.Error);
+                return;
+            }
+
+            if (!BCrypt.Net.BCrypt.Verify(_passwordModel.CurrentPassword, user.HashedPassword))
+            {
+                Snackbar.Add("Current password incorrect", Severity.Error);
+                return;
+            }
+
+            user.HashedPassword = BCrypt.Net.BCrypt.HashPassword(_passwordModel.NewPassword);
+            await Db.SaveChangesAsync();
+            _passwordModel = new();
+            Snackbar.Add("Password changed", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("Password change failed", Severity.Error);
+        }
+        finally
+        {
+            _changingPassword = false;
+        }
+    }
+
+    private void GoLogout() => Nav.NavigateTo("/logout", forceLoad: true);
+
+    private class ProfileModel
+    {
+        [Required, StringLength(100)]
+        public string Name { get; set; } = "";
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+    }
+
+    private class PasswordModel
+    {
+        [Required]
+        public string CurrentPassword { get; set; } = "";
+        [Required, MinLength(6)]
+        public string NewPassword { get; set; } = "";
+        [Required]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}
