@@ -1,7 +1,379 @@
 ﻿@page "/"
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using Streamify.Data
+@using Streamify.TMDB
+@inject StreamifyDbContext Db
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ITmdbClient Tmdb
 
-<PageTitle>Home</PageTitle>
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
+    @if (_loading)
+    {
+        <MudProgressCircular Indeterminate Class="ma-auto d-block" />
+    }
+    else
+    {
+        @if (_continueMovieEntries.Any() || _continueEpisodeEntries.Any())
+        {
+            <MudStack Spacing="1" Class="mb-6">
+                <MudText Typo="Typo.h5">Continua a guardare</MudText>
+                <MudGrid GutterSize="3">
+                    @foreach (var c in _continueMovieEntries)
+                    {
+                        if (c.Movie is { } m)
+                        {
+                            var meta = GetMeta(m.TmdbId, m.Title, false);
+                            var poster = FullPoster(meta.PosterPath);
+                            var progress = CalcProgress(c.ProgressSeconds, m.DurationMinutes);
+                            <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                                @PosterCard(meta.Title, null, poster, progress)
+                            </MudItem>
+                        }
+                    }
+                    @foreach (var c in _continueEpisodeEntries)
+                    {
+                        if (c.Episode is { } ep && ep.Series is { } series)
+                        {
+                            var meta = GetMeta(series.TmdbId, series.Title, true);
+                            var poster = FullPoster(meta.PosterPath);
+                            var title = $"{series.Title} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}";
+                            var progress = CalcProgress(c.ProgressSeconds, ep.DurationMinutes);
+                            <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                                @PosterCard(title, null, poster, progress)
+                            </MudItem>
+                        }
+                    }
+                </MudGrid>
+            </MudStack>
+        }
 
-<h1>Hello, world!</h1>
+        @if (_popularMovies.Any())
+        {
+            <MudStack Spacing="1" Class="mb-6">
+                <MudText Typo="Typo.h5">Film popolari</MudText>
+                @{
+                    var items = _popularMovies.Take(10).ToList();
+                    var visibleCount = 5;
+                    var slides = new List<List<Movie>>();
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var slide = new List<Movie>();
+                        for (int j = 0; j < visibleCount; j++)
+                        {
+                            slide.Add(items[(i + j) % items.Count]);
+                        }
+                        slides.Add(slide);
+                    }
+                }
+                <div @onmouseover="() => isMovieCarouselHovered = true" @onmouseout="() => isMovieCarouselHovered = false">
+                    <MudCarousel TData="object"
+                                 @bind-SelectedIndex="movieCarouselIndex"
+                                 AutoCycle="@(!isMovieCarouselHovered)"
+                                 AutoCycleTime="TimeSpan.FromMilliseconds(2000)"
+                                 ShowArrows="true"
+                                 Style="height: 29em;">
+                        @foreach (var slide in slides)
+                        {
+                            <MudCarouselItem>
+                                <MudGrid GutterSize="3">
+                                    @foreach (var m in slide)
+                                    {
+                                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                                        var poster = FullPoster(meta.PosterPath);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCard(meta.Title, null, poster)
+                                        </MudItem>
+                                    }
+                                </MudGrid>
+                            </MudCarouselItem>
+                        }
+                    </MudCarousel>
+                </div>
+            </MudStack>
+        }
 
-Welcome to your new app.
+        @if (_popularSeries.Any())
+        {
+            <MudStack Spacing="1" Class="mb-6">
+                <MudText Typo="Typo.h5">Serie popolari</MudText>
+                @{
+                    var items = _popularSeries.Take(10).ToList();
+                    var visibleCount = 5;
+                    var slides = new List<List<Series>>();
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var slide = new List<Series>();
+                        for (int j = 0; j < visibleCount; j++)
+                        {
+                            slide.Add(items[(i + j) % items.Count]);
+                        }
+                        slides.Add(slide);
+                    }
+                }
+                <div @onmouseover="() => isSeriesCarouselHovered = true" @onmouseout="() => isSeriesCarouselHovered = false">
+                    <MudCarousel TData="object"
+                                 @bind-SelectedIndex="seriesCarouselIndex"
+                                 AutoCycle="@(!isSeriesCarouselHovered)"
+                                 AutoCycleTime="TimeSpan.FromMilliseconds(2000)"
+                                 ShowArrows="true"
+                                 Style="height: 29em;">
+                        @foreach (var slide in slides)
+                        {
+                            <MudCarouselItem>
+                                <MudGrid GutterSize="3">
+                                    @foreach (var s in slide)
+                                    {
+                                        var meta = GetMeta(s.TmdbId, s.Title, true);
+                                        var poster = FullPoster(meta.PosterPath);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCard(meta.Title, null, poster)
+                                        </MudItem>
+                                    }
+                                </MudGrid>
+                            </MudCarouselItem>
+                        }
+                    </MudCarousel>
+                </div>
+            </MudStack>
+        }
+
+        @if (_recentMovies.Any() || _recentSeries.Any())
+        {
+            <MudStack Spacing="1" Class="mb-6">
+                <MudText Typo="Typo.h5">Aggiunti di recente</MudText>
+                <MudGrid GutterSize="3">
+                    @foreach (var m in _recentMovies)
+                    {
+                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                        var poster = FullPoster(meta.PosterPath);
+                        <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                            @PosterCard(meta.Title, null, poster)
+                        </MudItem>
+                    }
+                    @foreach (var s in _recentSeries)
+                    {
+                        var meta = GetMeta(s.TmdbId, s.Title, true);
+                        var poster = FullPoster(meta.PosterPath);
+                        <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                            @PosterCard(meta.Title, null, poster)
+                        </MudItem>
+                    }
+                </MudGrid>
+            </MudStack>
+        }
+
+        @if (!_continueMovieEntries.Any() && !_continueEpisodeEntries.Any() && !_popularMovies.Any() && !_popularSeries.Any() && !_recentMovies.Any() && !_recentSeries.Any())
+        {
+            <MudAlert Severity="Severity.Info">Nessun contenuto trovato. Aggiungi film o serie nel database.</MudAlert>
+        }
+    }
+</MudContainer>
+
+@code {
+    private bool _loading = true;
+    private int _userId;
+
+    private List<WatchHistory> _continueMovieEntries = new();
+    private List<WatchHistory> _continueEpisodeEntries = new();
+    private List<Movie> _popularMovies = new();
+    private List<Series> _popularSeries = new();
+    private List<Movie> _recentMovies = new();
+    private List<Series> _recentSeries = new();
+
+    private int movieCarouselIndex = 0;
+    private int seriesCarouselIndex = 0;
+
+    private bool isMovieCarouselHovered = false;
+    private bool isSeriesCarouselHovered = false;
+
+    private record Meta(int TmdbId, string Title, bool IsSeries, string? PosterPath, string? Overview);
+
+    private readonly Dictionary<int, Meta> _meta = new();
+    private readonly SemaphoreSlim _metaLock = new(1, 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var idStr = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(idStr, out _userId);
+
+        await LoadDataAsync();
+
+        var needed = new HashSet<(int tmdbId, string title, bool isSeries)>();
+        foreach (var h in _continueMovieEntries) needed.Add((h.Movie!.TmdbId, h.Movie.Title, false));
+        foreach (var h in _continueEpisodeEntries) needed.Add((h.Episode!.Series.TmdbId, h.Episode.Series.Title, true));
+        foreach (var m in _popularMovies) needed.Add((m.TmdbId, m.Title, false));
+        foreach (var s in _popularSeries) needed.Add((s.TmdbId, s.Title, true));
+        foreach (var m in _recentMovies) needed.Add((m.TmdbId, m.Title, false));
+        foreach (var s in _recentSeries) needed.Add((s.TmdbId, s.Title, true));
+
+        await LoadMetadataBatchAsync(needed);
+
+        _loading = false;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _continueMovieEntries = await Db.WatchHistories
+            .Include(h => h.Movie)
+            .Where(h => h.UserId == _userId && h.MovieId != null && !h.Completed && h.ProgressSeconds > 0)
+            .OrderByDescending(h => h.LastWatched)
+            .Take(20)
+            .ToListAsync();
+
+        _continueEpisodeEntries = await Db.WatchHistories
+            .Include(h => h.Episode)!.ThenInclude(e => e.Series)
+            .Where(h => h.UserId == _userId && h.EpisodeId != null && !h.Completed && h.ProgressSeconds > 0)
+            .OrderByDescending(h => h.LastWatched)
+            .Take(20)
+            .ToListAsync();
+
+        _popularMovies = await Db.Movies
+            .OrderByDescending(m => m.WatchHistoryEntries.Count)
+            .ThenBy(m => m.MovieId)
+            .Take(30)
+            .ToListAsync();
+
+        var seriesCounts = await Db.WatchHistories
+            .Where(h => h.EpisodeId != null)
+            .GroupBy(h => h.Episode!.SeriesId)
+            .Select(g => new { SeriesId = g.Key, Count = g.Count() })
+            .ToListAsync();
+        var seriesLookup = seriesCounts.ToDictionary(x => x.SeriesId, x => x.Count);
+
+        _popularSeries = await Db.Series
+            .Include(s => s.Episodes)
+            .ToListAsync();
+        _popularSeries = _popularSeries
+            .OrderByDescending(s => seriesLookup.TryGetValue(s.SeriesId, out var c) ? c : 0)
+            .ThenBy(s => s.SeriesId)
+            .Take(30)
+            .ToList();
+
+        _recentMovies = await Db.Movies
+            .OrderByDescending(m => m.MovieId)
+            .Take(30)
+            .ToListAsync();
+
+        _recentSeries = await Db.Series
+            .OrderByDescending(s => s.SeriesId)
+            .Take(30)
+            .ToListAsync();
+    }
+
+    private async Task LoadMetadataBatchAsync(IEnumerable<(int tmdbId, string title, bool isSeries)> items)
+    {
+        var tasks = items
+            .Where(i => !_meta.ContainsKey(i.tmdbId))
+            .Select(async i =>
+            {
+                try
+                {
+                    var results = await Tmdb.SearchAsync(i.title);
+                    var match = results.FirstOrDefault(r => r.Id == i.tmdbId)
+                                ?? results.FirstOrDefault(r => string.Equals(r.Title, i.title, StringComparison.OrdinalIgnoreCase));
+                    var meta = new Meta(i.tmdbId, i.title, i.isSeries, match?.PosterPath, match?.Overview);
+
+                    await _metaLock.WaitAsync();
+                    try
+                    {
+                        _meta[i.tmdbId] = meta;
+                    }
+                    finally
+                    {
+                        _metaLock.Release();
+                    }
+                }
+                catch
+                {
+                }
+            });
+
+        await Task.WhenAll(tasks);
+        StateHasChanged();
+    }
+
+    private Meta GetMeta(int tmdbId, string title, bool isSeries)
+        => _meta.TryGetValue(tmdbId, out var m) ? m : new Meta(tmdbId, title, isSeries, null, null);
+
+    private static double CalcProgress(int progressSec, int? durationMin)
+        => (durationMin is null or <= 0) ? 0 : Math.Clamp(progressSec / (durationMin.Value * 60.0), 0, 1);
+
+    private static string FormatProgress(int progressSec, int? durationMin)
+    {
+        if (durationMin is null or <= 0) return $"{progressSec / 60} min visti";
+        var pct = (int)(CalcProgress(progressSec, durationMin) * 100);
+        return $"{pct}%";
+    }
+
+    private static string? FullPoster(string? path)
+        => string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w342{path}";
+
+    private RenderFragment PosterCard(string title, string? subtitle, string? img, double? progress = null)
+        => builder =>
+        {
+            var seq = 0;
+            builder.OpenComponent<MudCard>(seq++);
+            builder.AddAttribute(seq++, "Class", "d-flex flex-column");
+            builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
+            {
+                var s = 0;
+
+                if (!string.IsNullOrEmpty(img))
+                {
+                    b.OpenComponent<MudImage>(s++);
+                    b.AddAttribute(s++, "Src", img);
+                    b.AddAttribute(s++, "Alt", title);
+                    b.AddAttribute(s++, "ObjectFit", ObjectFit.Contain);
+                    b.AddAttribute(s++, "Class", "flex-grow-0 flex-shrink-0");
+                    b.AddAttribute(s++, "Height", 300);
+                    b.CloseComponent();
+                }
+                else
+                {
+                    b.OpenComponent<MudCardContent>(s++);
+                    b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
+                    {
+                        c.OpenComponent<MudText>(0);
+                        c.AddAttribute(1, "Typo", Typo.subtitle2);
+                        c.AddAttribute(2, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
+                        c.CloseComponent();
+                    }));
+                    b.CloseComponent();
+                }
+
+                if (progress is > 0)
+                {
+                    b.OpenComponent<MudProgressLinear>(s++);
+                    b.AddAttribute(s++, "Value", progress * 100);
+                    b.AddAttribute(s++, "Color", Color.Primary);
+                    b.AddAttribute(s++, "Rounded", true);
+                    b.AddAttribute(s++, "Class", "mx-3 mt-2");
+                    b.CloseComponent();
+                }
+
+                b.OpenComponent<MudCardContent>(s++);
+                b.AddAttribute(s++, "Class", "pt-2");
+                b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
+                {
+                    c.OpenComponent<MudText>(0);
+                    c.AddAttribute(1, "Typo", Typo.subtitle2);
+                    c.AddAttribute(2, "Align", Align.Center);
+                    c.AddAttribute(3, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
+                    c.CloseComponent();
+
+                    if (!string.IsNullOrWhiteSpace(subtitle))
+                    {
+                        c.OpenComponent<MudText>(4);
+                        c.AddAttribute(5, "Typo", Typo.caption);
+                        c.AddAttribute(6, "Align", Align.Center);
+                        c.AddAttribute(7, "ChildContent", (RenderFragment)(t => t.AddContent(0, subtitle)));
+                        c.CloseComponent();
+                    }
+                }));
+                b.CloseComponent();
+            }));
+            builder.CloseComponent();
+        };
+}
