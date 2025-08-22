@@ -8,9 +8,119 @@
 @inject ITmdbClient Tmdb
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
-    @if (_loading)
+    <MudTextField @bind-Value="_searchText"
+                  Label="Cerca film o serie..."
+                  Variant="Variant.Outlined"
+                  Immediate="true"
+                  OnKeyDown="OnSearchInput"
+                  Adornment="Adornment.Start"
+                  AdornmentIcon="@Icons.Material.Filled.Search"
+                  Class="mb-4"
+    />
+    
+    @if (_showSearchResults)
     {
-        <MudProgressCircular Indeterminate Class="ma-auto d-block" />
+        <MudStack Spacing="2" Class="mb-6">
+            <MudStack Row Spacing="2" AlignItems="AlignItems.Center">
+                <MudText Typo="Typo.h5">Risultati ricerca: "@_searchText"</MudText>
+                <MudButton StartIcon="@Icons.Material.Filled.Clear" 
+                          Color="Color.Secondary" 
+                          Size="Size.Small"
+                          OnClick="ClearSearch">
+                    Cancella
+                </MudButton>
+            </MudStack>
+
+            @if (_isSearching)
+            {
+                <MudProgressCircular Indeterminate Size="Size.Small" Class="ma-2"/>
+            }
+            else if (!_searchMovieResults.Any() && !_searchSeriesResults.Any())
+            {
+                <MudAlert Severity="Severity.Warning">
+                    Nessun risultato trovato per "@_searchText".
+                </MudAlert>
+            }
+            else
+            {
+                @* Search Results - Movies *@
+                @if (_searchMovieResults.Any())
+                {
+                    <MudStack Spacing="1" Class="mb-4">
+                        <MudText Typo="Typo.h6">Film (@_searchMovieResults.Count)</MudText>
+                        <MudGrid GutterSize="3">
+                            @foreach (var m in _searchMovieResults.Take(12))
+                            {
+                                var meta = GetMeta(m.TmdbId, m.Title, false);
+                                var poster = FullPoster(meta.PosterPath);
+                                var subtitle = $"Film";
+                                
+                                @* Add duration if available *@
+                                if (m.DurationMinutes.HasValue && m.DurationMinutes > 0)
+                                {
+                                    subtitle += $" • {m.DurationMinutes}min";
+                                }
+
+                                <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                                    @PosterCard(meta.Title, subtitle, poster)
+                                </MudItem>
+                            }
+                        </MudGrid>
+                        
+                        @* Show more results if there are many *@
+                        @if (_searchMovieResults.Count > 12)
+                        {
+                            <MudText Typo="Typo.caption" Align="Align.Center" Class="mt-2">
+                                Mostrati 12 di @_searchMovieResults.Count risultati
+                            </MudText>
+                        }
+                    </MudStack>
+                }
+
+                @* Search Results - Series *@
+                @if (_searchSeriesResults.Any())
+                {
+                    <MudStack Spacing="1" Class="mb-4">
+                        <MudText Typo="Typo.h6">Serie TV (@_searchSeriesResults.Count)</MudText>
+                        <MudGrid GutterSize="3">
+                            @foreach (var s in _searchSeriesResults.Take(12))
+                            {
+                                var meta = GetMeta(s.TmdbId, s.Title, true);
+                                var poster = FullPoster(meta.PosterPath);
+                                var episodeCount = s.Episodes?.Count ?? 0;
+                                var seasonCount = s.Episodes?.GroupBy(e => e.SeasonNumber).Count() ?? 0;
+                                
+                                var subtitle = "Serie TV";
+                                if (seasonCount > 0)
+                                {
+                                    subtitle += $" • {seasonCount} stagion{(seasonCount == 1 ? "e" : "i")}";
+                                }
+                                if (episodeCount > 0)
+                                {
+                                    subtitle += $" • {episodeCount} episodi";
+                                }
+                                
+                                <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                                    @PosterCard(meta.Title, subtitle, poster)
+                                </MudItem>
+                            }
+                        </MudGrid>
+                        
+                        @* Show more results if there are many *@
+                        @if (_searchSeriesResults.Count > 12)
+                        {
+                            <MudText Typo="Typo.caption" Align="Align.Center" Class="mt-2">
+                                Mostrati 12 di @_searchSeriesResults.Count risultati
+                            </MudText>
+                        }
+                    </MudStack>
+                }
+            }
+        </MudStack>
+    }
+    else if (_loading)
+    {
+        <MudProgressCircular Indeterminate Class="ma-auto d-block"/>
     }
     else
     {
@@ -63,6 +173,7 @@
                         {
                             slide.Add(items[(i + j) % items.Count]);
                         }
+
                         slides.Add(slide);
                     }
                 }
@@ -108,6 +219,7 @@
                         {
                             slide.Add(items[(i + j) % items.Count]);
                         }
+
                         slides.Add(slide);
                     }
                 }
@@ -173,6 +285,11 @@
 @code {
     private bool _loading = true;
     private int _userId;
+    private string _searchText = string.Empty;
+    private List<Movie> _searchMovieResults = new();
+    private List<Series> _searchSeriesResults = new();
+    private bool _isSearching = false;
+    private bool _showSearchResults = false;
 
     private List<WatchHistory> _continueMovieEntries = new();
     private List<WatchHistory> _continueEpisodeEntries = new();
@@ -211,6 +328,93 @@
         await LoadMetadataBatchAsync(needed);
 
         _loading = false;
+    }
+    
+    private async Task OnSearchInput(KeyboardEventArgs e)
+    {
+        // Trigger search on Enter key or after a short delay for real-time search
+        if (e.Key == "Enter" || string.IsNullOrWhiteSpace(_searchText))
+        {
+            await PerformSearch();
+        }
+        else
+        {
+            // Optional: Add debounced search for real-time results
+            await Task.Delay(300); // Small delay to avoid too many requests
+            if (_searchText.Length >= 2) // Only search if at least 2 characters
+            {
+                await PerformSearch();
+            }
+        }
+    }
+
+    private async Task PerformSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_searchText))
+        {
+            _showSearchResults = false;
+            _searchMovieResults.Clear();
+            _searchSeriesResults.Clear();
+            StateHasChanged();
+            return;
+        }
+
+        _isSearching = true;
+        _showSearchResults = true;
+        StateHasChanged();
+
+        try
+        {
+            var searchTerm = _searchText.Trim().ToLower();
+
+            // Search movies
+            _searchMovieResults = await Db.Movies
+                .Where(m => m.Title.ToLower().Contains(searchTerm))
+                .OrderBy(m => m.Title)
+                .Take(20)
+                .ToListAsync();
+
+            // Search series
+            _searchSeriesResults = await Db.Series
+                .Where(s => s.Title.ToLower().Contains(searchTerm))
+                .OrderBy(s => s.Title)
+                .Take(20)
+                .ToListAsync();
+
+            // Load metadata for search results
+            var searchNeeded = new HashSet<(int tmdbId, string title, bool isSeries)>();
+            foreach (var m in _searchMovieResults) 
+                searchNeeded.Add((m.TmdbId, m.Title, false));
+            foreach (var s in _searchSeriesResults) 
+                searchNeeded.Add((s.TmdbId, s.Title, true));
+
+            if (searchNeeded.Any())
+            {
+                await LoadMetadataBatchAsync(searchNeeded);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error or handle as needed
+            Console.WriteLine($"Search error: {ex.Message}");
+            _searchMovieResults.Clear();
+            _searchSeriesResults.Clear();
+        }
+        finally
+        {
+            _isSearching = false;
+            StateHasChanged();
+        }
+    }
+
+    // Add this method to clear search when user clicks elsewhere
+    private void ClearSearch()
+    {
+        _searchText = string.Empty;
+        _showSearchResults = false;
+        _searchMovieResults.Clear();
+        _searchSeriesResults.Clear();
+        StateHasChanged();
     }
 
     private async Task LoadDataAsync()
@@ -307,73 +511,122 @@
         return $"{pct}%";
     }
 
-    private static string? FullPoster(string? path)
-        => string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w342{path}";
-
-    private RenderFragment PosterCard(string title, string? subtitle, string? img, double? progress = null)
-        => builder =>
+    // Enhanced PosterCard method with better image handling
+private RenderFragment PosterCard(string title, string? subtitle, string? img, double? progress = null)
+    => builder =>
+    {
+        var seq = 0;
+        builder.OpenComponent<MudCard>(seq++);
+        builder.AddAttribute(seq++, "Class", "d-flex flex-column");
+        builder.AddAttribute(seq++, "Style", "height: 100%; cursor: pointer;");
+        builder.AddAttribute(seq++, "Elevation", 2);
+        builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
         {
-            var seq = 0;
-            builder.OpenComponent<MudCard>(seq++);
-            builder.AddAttribute(seq++, "Class", "d-flex flex-column");
-            builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
+            var s = 0;
+
+            // Image section with loading state and fallback
+            b.OpenElement(s++, "div");
+            b.AddAttribute(s++, "class", "position-relative");
+            b.AddAttribute(s++, "style", "height: 300px; overflow: hidden;");
+
+            if (!string.IsNullOrEmpty(img))
             {
-                var s = 0;
-
-                if (!string.IsNullOrEmpty(img))
+                b.OpenComponent<MudImage>(s++);
+                b.AddAttribute(s++, "Src", img);
+                b.AddAttribute(s++, "Alt", title);
+                b.AddAttribute(s++, "ObjectFit", ObjectFit.Cover);
+                b.AddAttribute(s++, "Class", "flex-grow-0 flex-shrink-0");
+                b.AddAttribute(s++, "Height", 300);
+                b.AddAttribute(s++, "Style", "width: 100%; transition: opacity 0.3s ease;");
+                b.CloseComponent();
+            }
+            else
+            {
+                // Fallback when no image is available
+                b.OpenElement(s++, "div");
+                b.AddAttribute(s++, "class", "d-flex align-center justify-center");
+                b.AddAttribute(s++, "style", "height: 300px; background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%); border-radius: 4px;");
+                
+                b.OpenComponent<MudStack>(s++);
+                b.AddAttribute(s++, "AlignItems", AlignItems.Center);
+                b.AddAttribute(s++, "Spacing", 2);
+                b.AddAttribute(s++, "ChildContent", (RenderFragment)(fallback =>
                 {
-                    b.OpenComponent<MudImage>(s++);
-                    b.AddAttribute(s++, "Src", img);
-                    b.AddAttribute(s++, "Alt", title);
-                    b.AddAttribute(s++, "ObjectFit", ObjectFit.Contain);
-                    b.AddAttribute(s++, "Class", "flex-grow-0 flex-shrink-0");
-                    b.AddAttribute(s++, "Height", 300);
-                    b.CloseComponent();
-                }
-                else
-                {
-                    b.OpenComponent<MudCardContent>(s++);
-                    b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
-                    {
-                        c.OpenComponent<MudText>(0);
-                        c.AddAttribute(1, "Typo", Typo.subtitle2);
-                        c.AddAttribute(2, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
-                        c.CloseComponent();
-                    }));
-                    b.CloseComponent();
-                }
-
-                if (progress is > 0)
-                {
-                    b.OpenComponent<MudProgressLinear>(s++);
-                    b.AddAttribute(s++, "Value", progress * 100);
-                    b.AddAttribute(s++, "Color", Color.Primary);
-                    b.AddAttribute(s++, "Rounded", true);
-                    b.AddAttribute(s++, "Class", "mx-3 mt-2");
-                    b.CloseComponent();
-                }
-
-                b.OpenComponent<MudCardContent>(s++);
-                b.AddAttribute(s++, "Class", "pt-2");
-                b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
-                {
-                    c.OpenComponent<MudText>(0);
-                    c.AddAttribute(1, "Typo", Typo.subtitle2);
-                    c.AddAttribute(2, "Align", Align.Center);
-                    c.AddAttribute(3, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
-                    c.CloseComponent();
-
-                    if (!string.IsNullOrWhiteSpace(subtitle))
-                    {
-                        c.OpenComponent<MudText>(4);
-                        c.AddAttribute(5, "Typo", Typo.caption);
-                        c.AddAttribute(6, "Align", Align.Center);
-                        c.AddAttribute(7, "ChildContent", (RenderFragment)(t => t.AddContent(0, subtitle)));
-                        c.CloseComponent();
-                    }
+                    fallback.OpenComponent<MudIcon>(0);
+                    fallback.AddAttribute(1, "Icon", Icons.Material.Filled.Movie);
+                    fallback.AddAttribute(2, "Size", Size.Large);
+                    fallback.AddAttribute(3, "Color", Color.Default);
+                    fallback.CloseComponent();
+                    
+                    fallback.OpenComponent<MudText>(4);
+                    fallback.AddAttribute(5, "Typo", Typo.caption);
+                    fallback.AddAttribute(6, "Align", Align.Center);
+                    fallback.AddAttribute(7, "Color", Color.Default);
+                    fallback.AddAttribute(8, "ChildContent", (RenderFragment)(t => t.AddContent(0, "Poster non disponibile")));
+                    fallback.CloseComponent();
                 }));
                 b.CloseComponent();
+                
+                b.CloseElement(); // div
+            }
+
+            // Progress bar overlay if progress is provided
+            if (progress is > 0)
+            {
+                b.OpenElement(s++, "div");
+                b.AddAttribute(s++, "class", "position-absolute");
+                b.AddAttribute(s++, "style", "bottom: 0; left: 0; right: 0; padding: 8px;");
+                
+                b.OpenComponent<MudProgressLinear>(s++);
+                b.AddAttribute(s++, "Value", progress * 100);
+                b.AddAttribute(s++, "Color", Color.Primary);
+                b.AddAttribute(s++, "Rounded", true);
+                b.AddAttribute(s++, "Size", Size.Medium);
+                b.CloseComponent();
+                
+                b.CloseElement(); // div
+            }
+
+            b.CloseElement(); // position-relative div
+
+            // Card content section
+            b.OpenComponent<MudCardContent>(s++);
+            b.AddAttribute(s++, "Class", "pt-3 pb-2 flex-grow-1");
+            b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
+            {
+                c.OpenComponent<MudText>(0);
+                c.AddAttribute(1, "Typo", Typo.subtitle2);
+                c.AddAttribute(2, "Align", Align.Center);
+                c.AddAttribute(3, "Class", "font-weight-medium line-height-sm");
+                c.AddAttribute(4, "Style", "word-break: break-word; hyphens: auto;");
+                c.AddAttribute(5, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
+                c.CloseComponent();
+
+                if (!string.IsNullOrWhiteSpace(subtitle))
+                {
+                    c.OpenComponent<MudText>(6);
+                    c.AddAttribute(7, "Typo", Typo.caption);
+                    c.AddAttribute(8, "Align", Align.Center);
+                    c.AddAttribute(9, "Color", Color.Default);
+                    c.AddAttribute(10, "Class", "mt-1");
+                    c.AddAttribute(11, "ChildContent", (RenderFragment)(t => t.AddContent(0, subtitle)));
+                    c.CloseComponent();
+                }
             }));
-            builder.CloseComponent();
-        };
+            b.CloseComponent();
+        }));
+        builder.CloseComponent();
+    };
+
+    // Helper method to validate and format poster URLs
+    private static string? FullPoster(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        
+        // Ensure the path starts with a forward slash
+        if (!path.StartsWith("/"))
+            path = "/" + path;
+            
+        return $"https://image.tmdb.org/t/p/w342{path}";
+    }
 }
