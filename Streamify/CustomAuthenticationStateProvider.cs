@@ -50,7 +50,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         {
             var decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(token));
             var parts = decoded.Split(':');
-            // Expected: userId:email:role:ts (new) or userId:email:ts (old)
+            
             if (parts.Length == 4)
             {
                 var claims = new[]

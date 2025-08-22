@@ -3,10 +3,12 @@
 @using Streamify.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Forms
+@using Streamify.Components.Layout
 @inject StreamifyDbContext Db
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject ILogger<Register> Logger
+@layout UnauthenticatedLayout
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">

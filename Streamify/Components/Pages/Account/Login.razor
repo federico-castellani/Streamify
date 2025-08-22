@@ -1,8 +1,10 @@
 @page "/login"
 @using System.ComponentModel.DataAnnotations
+@using Streamify.Components.Layout
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@layout UnauthenticatedLayout
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">
@@ -66,10 +68,25 @@
     private bool isLoading;
     private bool _showPassword;
 
-    protected override void OnInitialized()
+    protected override async void OnInitialized()
     {
         var uri = new Uri(Navigation.Uri);
         var q = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        
+        if(q.TryGetValue("login", out var v1) && v1 == "success")
+        {
+            Snackbar.Add("Login effettuato con successo.", Severity.Success);
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        // Only clear ReturnUrl if not authenticated and not a successful login
+        if (q.ContainsKey("ReturnUrl") && !(q.TryGetValue("login", out var v2) && v2 == "success"))
+        {
+            var cleanPath = uri.AbsolutePath;
+            Navigation.NavigateTo(cleanPath, forceLoad: true);
+            return;
+        }
         if (q.TryGetValue("error", out var e))
             Snackbar.Add(Uri.UnescapeDataString(e!), Severity.Error);
     }

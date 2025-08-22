@@ -1,5 +1,4 @@
 ﻿@using Streamify.Services
-@using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
 @inherits LayoutComponentBase
 @inject IThemeService ThemeService
@@ -26,18 +25,12 @@
             <Authorized>
                 <MudMenu Label="@_userDisplay" EndIcon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit">
                     <MudMenuItem Href="/account">Account</MudMenuItem>
-                    <MudMenuItem Href="/settings">Settings</MudMenuItem>
                     <MudDivider />
                     <MudMenuItem Href="/logout">
                         <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mr-2" /> Logout
                     </MudMenuItem>
                 </MudMenu>
             </Authorized>
-            <NotAuthorized>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/login" StartIcon="@Icons.Material.Filled.Login" Class="login-btn">
-                    Login
-                </MudButton>
-            </NotAuthorized>
         </AuthorizeView>
     </MudAppBar>
 
@@ -69,15 +62,16 @@
     {
         var uri = new Uri(Nav.Uri);
         var q = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
-        if (q.TryGetValue("login", out var v) && v == "success")
-        {
-            Snackbar.Add("Login successful.", Severity.Success);
-            Nav.NavigateTo("/", replace: true);
-        }
     }
 
     protected override async Task OnInitializedAsync()
     {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        if (auth.User.Identity?.IsAuthenticated == false)
+        {
+            Nav.NavigateTo("/login");
+        }
+        
         AuthProvider.AuthenticationStateChanged += OnAuthStateChanged;
         ThemeService.ThemeChanged += OnExternalThemeChanged;
         await SyncAuthAndThemeAsync();

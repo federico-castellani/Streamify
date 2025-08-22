@@ -1,0 +1,25 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider IsDarkMode="_isDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudPaper Elevation="4" Class="pa-6" Height="100vh">
+    <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Baseline">
+        <MudText Typo="Typo.h4" Align="Align.Center" Class="mb-6">Streamify</MudText>
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.DarkMode : Icons.Material.Filled.LightMode)"
+                       Color="Color.Inherit"
+                       OnClick="ToggleTheme" />
+    </MudStack>
+    @Body
+</MudPaper>
+
+@code {
+    private bool _isDarkMode = true;
+
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+    }
+}

@@ -97,9 +97,9 @@ public class TmdbClient : ITmdbClient
     }
 
     private record MultiSearchDto(List<MultiItem> results);
-#pragma warning disable IDE1006
+
     private record MultiItem(int id, string media_type, string? title, string? name, string? poster_path, string? overview, double popularity);
-#pragma warning restore IDE1006
+
     private record MovieDetailDto(int id, string title, int? runtime, string? release_date);
     private record SeriesDetailDto(int id, string name, int? number_of_seasons, List<SeasonItem>? seasons);
     private record SeasonItem(int id, int season_number);
