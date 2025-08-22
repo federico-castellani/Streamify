@@ -52,7 +52,6 @@
                             @foreach (var m in _searchMovieResults.Take(12))
                             {
                                 var meta = GetMeta(m.TmdbId, m.Title, false);
-                                var poster = FullPoster(meta.PosterPath);
                                 var subtitle = $"Film";
                                 
                                 @* Add duration if available *@
@@ -62,7 +61,7 @@
                                 }
 
                                 <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                    @PosterCard(meta.Title, subtitle, poster)
+                                    @PosterCard(meta.Title, subtitle, meta)
                                 </MudItem>
                             }
                         </MudGrid>
@@ -86,7 +85,6 @@
                             @foreach (var s in _searchSeriesResults.Take(12))
                             {
                                 var meta = GetMeta(s.TmdbId, s.Title, true);
-                                var poster = FullPoster(meta.PosterPath);
                                 var episodeCount = s.Episodes?.Count ?? 0;
                                 var seasonCount = s.Episodes?.GroupBy(e => e.SeasonNumber).Count() ?? 0;
                                 
@@ -101,7 +99,7 @@
                                 }
                                 
                                 <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                    @PosterCard(meta.Title, subtitle, poster)
+                                    @PosterCard(meta.Title, subtitle, meta)
                                 </MudItem>
                             }
                         </MudGrid>
@@ -134,10 +132,9 @@
                         if (c.Movie is { } m)
                         {
                             var meta = GetMeta(m.TmdbId, m.Title, false);
-                            var poster = FullPoster(meta.PosterPath);
                             var progress = CalcProgress(c.ProgressSeconds, m.DurationMinutes);
                             <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                @PosterCard(meta.Title, null, poster, progress)
+                                @PosterCard(meta.Title, null, meta, progress)
                             </MudItem>
                         }
                     }
@@ -146,11 +143,10 @@
                         if (c.Episode is { } ep && ep.Series is { } series)
                         {
                             var meta = GetMeta(series.TmdbId, series.Title, true);
-                            var poster = FullPoster(meta.PosterPath);
                             var title = $"{series.Title} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}";
                             var progress = CalcProgress(c.ProgressSeconds, ep.DurationMinutes);
                             <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                @PosterCard(title, null, poster, progress)
+                                @PosterCard(title, null, meta, progress)
                             </MudItem>
                         }
                     }
@@ -191,9 +187,8 @@
                                     @foreach (var m in slide)
                                     {
                                         var meta = GetMeta(m.TmdbId, m.Title, false);
-                                        var poster = FullPoster(meta.PosterPath);
                                         <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
-                                            @PosterCard(meta.Title, null, poster)
+                                            @PosterCard(meta.Title, null, meta)
                                         </MudItem>
                                     }
                                 </MudGrid>
@@ -237,9 +232,8 @@
                                     @foreach (var s in slide)
                                     {
                                         var meta = GetMeta(s.TmdbId, s.Title, true);
-                                        var poster = FullPoster(meta.PosterPath);
                                         <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
-                                            @PosterCard(meta.Title, null, poster)
+                                            @PosterCard(meta.Title, null, meta)
                                         </MudItem>
                                     }
                                 </MudGrid>
@@ -258,17 +252,15 @@
                     @foreach (var m in _recentMovies)
                     {
                         var meta = GetMeta(m.TmdbId, m.Title, false);
-                        var poster = FullPoster(meta.PosterPath);
                         <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                            @PosterCard(meta.Title, null, poster)
+                            @PosterCard(meta.Title, null, meta)
                         </MudItem>
                     }
                     @foreach (var s in _recentSeries)
                     {
                         var meta = GetMeta(s.TmdbId, s.Title, true);
-                        var poster = FullPoster(meta.PosterPath);
                         <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                            @PosterCard(meta.Title, null, poster)
+                            @PosterCard(meta.Title, null, meta)
                         </MudItem>
                     }
                 </MudGrid>
@@ -304,7 +296,8 @@
     private bool isMovieCarouselHovered = false;
     private bool isSeriesCarouselHovered = false;
 
-    private record Meta(int TmdbId, string Title, bool IsSeries, string? PosterPath, string? Overview);
+    // Updated Meta record to include BackdropPath
+    private record Meta(int TmdbId, string Title, bool IsSeries, string? PosterPath, string? BackdropPath, string? Overview);
 
     private readonly Dictionary<int, Meta> _meta = new();
     private readonly SemaphoreSlim _metaLock = new(1, 1);
@@ -407,7 +400,6 @@
         }
     }
 
-    // Add this method to clear search when user clicks elsewhere
     private void ClearSearch()
     {
         _searchText = string.Empty;
@@ -466,6 +458,7 @@
             .ToListAsync();
     }
 
+    // Updated LoadMetadataBatchAsync to include BackdropPath
     private async Task LoadMetadataBatchAsync(IEnumerable<(int tmdbId, string title, bool isSeries)> items)
     {
         var tasks = items
@@ -477,7 +470,9 @@
                     var results = await Tmdb.SearchAsync(i.title);
                     var match = results.FirstOrDefault(r => r.Id == i.tmdbId)
                                 ?? results.FirstOrDefault(r => string.Equals(r.Title, i.title, StringComparison.OrdinalIgnoreCase));
-                    var meta = new Meta(i.tmdbId, i.title, i.isSeries, match?.PosterPath, match?.Overview);
+                    
+                    // Now includes BackdropPath from the updated search results
+                    var meta = new Meta(i.tmdbId, i.title, i.isSeries, match?.PosterPath, match?.BackdropPath, match?.Overview);
 
                     await _metaLock.WaitAsync();
                     try
@@ -491,6 +486,7 @@
                 }
                 catch
                 {
+                    // Handle error gracefully
                 }
             });
 
@@ -499,7 +495,7 @@
     }
 
     private Meta GetMeta(int tmdbId, string title, bool isSeries)
-        => _meta.TryGetValue(tmdbId, out var m) ? m : new Meta(tmdbId, title, isSeries, null, null);
+        => _meta.TryGetValue(tmdbId, out var m) ? m : new Meta(tmdbId, title, isSeries, null, null, null);
 
     private static double CalcProgress(int progressSec, int? durationMin)
         => (durationMin is null or <= 0) ? 0 : Math.Clamp(progressSec / (durationMin.Value * 60.0), 0, 1);
@@ -511,122 +507,155 @@
         return $"{pct}%";
     }
 
-    // Enhanced PosterCard method with better image handling
-private RenderFragment PosterCard(string title, string? subtitle, string? img, double? progress = null)
-    => builder =>
-    {
-        var seq = 0;
-        builder.OpenComponent<MudCard>(seq++);
-        builder.AddAttribute(seq++, "Class", "d-flex flex-column");
-        builder.AddAttribute(seq++, "Style", "height: 100%; cursor: pointer;");
-        builder.AddAttribute(seq++, "Elevation", 2);
-        builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
+    // Updated PosterCard method to use Meta object and the modular image service
+    private RenderFragment PosterCard(string title, string? subtitle, Meta meta, double? progress = null, bool useBackdrop = false)
+        => builder =>
         {
-            var s = 0;
-
-            // Image section with loading state and fallback
-            b.OpenElement(s++, "div");
-            b.AddAttribute(s++, "class", "position-relative");
-            b.AddAttribute(s++, "style", "height: 300px; overflow: hidden;");
-
-            if (!string.IsNullOrEmpty(img))
+            var seq = 0;
+            builder.OpenComponent<MudCard>(seq++);
+            builder.AddAttribute(seq++, "Class", "d-flex flex-column");
+            builder.AddAttribute(seq++, "Style", "height: 100%; cursor: pointer;");
+            builder.AddAttribute(seq++, "Elevation", 2);
+            builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
             {
-                b.OpenComponent<MudImage>(s++);
-                b.AddAttribute(s++, "Src", img);
-                b.AddAttribute(s++, "Alt", title);
-                b.AddAttribute(s++, "ObjectFit", ObjectFit.Cover);
-                b.AddAttribute(s++, "Class", "flex-grow-0 flex-shrink-0");
-                b.AddAttribute(s++, "Height", 300);
-                b.AddAttribute(s++, "Style", "width: 100%; transition: opacity 0.3s ease;");
-                b.CloseComponent();
-            }
-            else
-            {
-                // Fallback when no image is available
+                var s = 0;
+
+                // Image section with loading state and fallback
                 b.OpenElement(s++, "div");
-                b.AddAttribute(s++, "class", "d-flex align-center justify-center");
-                b.AddAttribute(s++, "style", "height: 300px; background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%); border-radius: 4px;");
-                
-                b.OpenComponent<MudStack>(s++);
-                b.AddAttribute(s++, "AlignItems", AlignItems.Center);
-                b.AddAttribute(s++, "Spacing", 2);
-                b.AddAttribute(s++, "ChildContent", (RenderFragment)(fallback =>
+                b.AddAttribute(s++, "class", "position-relative");
+                b.AddAttribute(s++, "style", "height: 300px; overflow: hidden;");
+
+                // Choose image path and type based on preference and availability
+                var imagePath = useBackdrop && !string.IsNullOrEmpty(meta.BackdropPath) 
+                    ? meta.BackdropPath 
+                    : meta.PosterPath;
+
+                var imageType = useBackdrop && !string.IsNullOrEmpty(meta.BackdropPath) 
+                    ? TmdbImageType.Backdrop 
+                    : TmdbImageType.Poster;
+
+                // Get appropriate size based on container (300px height for cards)
+                var imageSize = imageType == TmdbImageType.Poster 
+                    ? TmdbImageSize.W342  // Good for poster cards
+                    : TmdbImageSize.W780; // Good for backdrop cards
+
+                var imageUrl = Tmdb.GetImageUrl(imagePath, imageType, imageSize);
+
+                if (!string.IsNullOrEmpty(imageUrl))
                 {
-                    fallback.OpenComponent<MudIcon>(0);
-                    fallback.AddAttribute(1, "Icon", Icons.Material.Filled.Movie);
-                    fallback.AddAttribute(2, "Size", Size.Large);
-                    fallback.AddAttribute(3, "Color", Color.Default);
-                    fallback.CloseComponent();
+                    b.OpenComponent<MudImage>(s++);
+                    b.AddAttribute(s++, "Src", imageUrl);
+                    b.AddAttribute(s++, "Alt", title);
+                    b.AddAttribute(s++, "ObjectFit", ObjectFit.Cover);
+                    b.AddAttribute(s++, "Class", "flex-grow-0 flex-shrink-0");
+                    b.AddAttribute(s++, "Height", 300);
+                    b.AddAttribute(s++, "Style", "width: 100%; transition: opacity 0.3s ease;");
+                    b.CloseComponent();
+                }
+                else
+                {
+                    // Fallback when no image is available
+                    b.OpenElement(s++, "div");
+                    b.AddAttribute(s++, "class", "d-flex align-center justify-center");
+                    b.AddAttribute(s++, "style", "height: 300px; background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%); border-radius: 4px;");
                     
-                    fallback.OpenComponent<MudText>(4);
-                    fallback.AddAttribute(5, "Typo", Typo.caption);
-                    fallback.AddAttribute(6, "Align", Align.Center);
-                    fallback.AddAttribute(7, "Color", Color.Default);
-                    fallback.AddAttribute(8, "ChildContent", (RenderFragment)(t => t.AddContent(0, "Poster non disponibile")));
-                    fallback.CloseComponent();
+                    b.OpenComponent<MudStack>(s++);
+                    b.AddAttribute(s++, "AlignItems", AlignItems.Center);
+                    b.AddAttribute(s++, "Spacing", 2);
+                    b.AddAttribute(s++, "ChildContent", (RenderFragment)(fallback =>
+                    {
+                        fallback.OpenComponent<MudIcon>(0);
+                        fallback.AddAttribute(1, "Icon", meta.IsSeries ? Icons.Material.Filled.Tv : Icons.Material.Filled.Movie);
+                        fallback.AddAttribute(2, "Size", Size.Large);
+                        fallback.AddAttribute(3, "Color", Color.Default);
+                        fallback.CloseComponent();
+                        
+                        fallback.OpenComponent<MudText>(4);
+                        fallback.AddAttribute(5, "Typo", Typo.caption);
+                        fallback.AddAttribute(6, "Align", Align.Center);
+                        fallback.AddAttribute(7, "Color", Color.Default);
+                        fallback.AddAttribute(8, "ChildContent", (RenderFragment)(t => t.AddContent(0, "Immagine non disponibile")));
+                        fallback.CloseComponent();
+                    }));
+                    b.CloseComponent();
+                    
+                    b.CloseElement(); // div
+                }
+
+                // Progress bar overlay if progress is provided
+                if (progress is > 0)
+                {
+                    b.OpenElement(s++, "div");
+                    b.AddAttribute(s++, "class", "position-absolute");
+                    b.AddAttribute(s++, "style", "bottom: 0; left: 0; right: 0; padding: 8px;");
+                    
+                    b.OpenComponent<MudProgressLinear>(s++);
+                    b.AddAttribute(s++, "Value", progress * 100);
+                    b.AddAttribute(s++, "Color", Color.Primary);
+                    b.AddAttribute(s++, "Rounded", true);
+                    b.AddAttribute(s++, "Size", Size.Medium);
+                    b.CloseComponent();
+                    
+                    b.CloseElement(); // div
+                }
+
+                b.CloseElement(); // position-relative div
+
+                // Card content section
+                b.OpenComponent<MudCardContent>(s++);
+                b.AddAttribute(s++, "Class", "pt-3 pb-2 flex-grow-1");
+                b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
+                {
+                    c.OpenComponent<MudText>(0);
+                    c.AddAttribute(1, "Typo", Typo.subtitle2);
+                    c.AddAttribute(2, "Align", Align.Center);
+                    c.AddAttribute(3, "Class", "font-weight-medium line-height-sm");
+                    c.AddAttribute(4, "Style", "word-break: break-word; hyphens: auto;");
+                    c.AddAttribute(5, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
+                    c.CloseComponent();
+
+                    if (!string.IsNullOrWhiteSpace(subtitle))
+                    {
+                        c.OpenComponent<MudText>(6);
+                        c.AddAttribute(7, "Typo", Typo.caption);
+                        c.AddAttribute(8, "Align", Align.Center);
+                        c.AddAttribute(9, "Color", Color.Default);
+                        c.AddAttribute(10, "Class", "mt-1");
+                        c.AddAttribute(11, "ChildContent", (RenderFragment)(t => t.AddContent(0, subtitle)));
+                        c.CloseComponent();
+                    }
                 }));
                 b.CloseComponent();
-                
-                b.CloseElement(); // div
-            }
-
-            // Progress bar overlay if progress is provided
-            if (progress is > 0)
-            {
-                b.OpenElement(s++, "div");
-                b.AddAttribute(s++, "class", "position-absolute");
-                b.AddAttribute(s++, "style", "bottom: 0; left: 0; right: 0; padding: 8px;");
-                
-                b.OpenComponent<MudProgressLinear>(s++);
-                b.AddAttribute(s++, "Value", progress * 100);
-                b.AddAttribute(s++, "Color", Color.Primary);
-                b.AddAttribute(s++, "Rounded", true);
-                b.AddAttribute(s++, "Size", Size.Medium);
-                b.CloseComponent();
-                
-                b.CloseElement(); // div
-            }
-
-            b.CloseElement(); // position-relative div
-
-            // Card content section
-            b.OpenComponent<MudCardContent>(s++);
-            b.AddAttribute(s++, "Class", "pt-3 pb-2 flex-grow-1");
-            b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
-            {
-                c.OpenComponent<MudText>(0);
-                c.AddAttribute(1, "Typo", Typo.subtitle2);
-                c.AddAttribute(2, "Align", Align.Center);
-                c.AddAttribute(3, "Class", "font-weight-medium line-height-sm");
-                c.AddAttribute(4, "Style", "word-break: break-word; hyphens: auto;");
-                c.AddAttribute(5, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
-                c.CloseComponent();
-
-                if (!string.IsNullOrWhiteSpace(subtitle))
-                {
-                    c.OpenComponent<MudText>(6);
-                    c.AddAttribute(7, "Typo", Typo.caption);
-                    c.AddAttribute(8, "Align", Align.Center);
-                    c.AddAttribute(9, "Color", Color.Default);
-                    c.AddAttribute(10, "Class", "mt-1");
-                    c.AddAttribute(11, "ChildContent", (RenderFragment)(t => t.AddContent(0, subtitle)));
-                    c.CloseComponent();
-                }
             }));
-            b.CloseComponent();
-        }));
-        builder.CloseComponent();
-    };
+            builder.CloseComponent();
+        };
 
-    // Helper method to validate and format poster URLs
-    private static string? FullPoster(string? path)
+    // Helper methods for different image scenarios
+    private string? GetOptimalPosterUrl(string? posterPath, int targetWidth = 342)
     {
-        if (string.IsNullOrWhiteSpace(path)) return null;
+        if (string.IsNullOrEmpty(posterPath)) return null;
         
-        // Ensure the path starts with a forward slash
-        if (!path.StartsWith("/"))
-            path = "/" + path;
-            
-        return $"https://image.tmdb.org/t/p/w342{path}";
+        var size = TmdbImageHelper.GetBestSizeForWidth(TmdbImageType.Poster, targetWidth);
+        return Tmdb.GetPosterUrl(posterPath, size);
+    }
+
+    private string? GetOptimalBackdropUrl(string? backdropPath, int targetWidth = 780)
+    {
+        if (string.IsNullOrEmpty(backdropPath)) return null;
+        
+        var size = TmdbImageHelper.GetBestSizeForWidth(TmdbImageType.Backdrop, targetWidth);
+        return Tmdb.GetBackdropUrl(backdropPath, size);
+    }
+
+    // Method to get responsive image URLs based on screen size
+    private (string? mobile, string? tablet, string? desktop) GetResponsivePosterUrls(string? posterPath)
+    {
+        if (string.IsNullOrEmpty(posterPath)) return (null, null, null);
+        
+        return (
+            Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W185),  // Mobile
+            Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W342),  // Tablet
+            Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W500)   // Desktop
+        );
     }
 }

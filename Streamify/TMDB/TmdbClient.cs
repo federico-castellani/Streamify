@@ -19,6 +19,37 @@ public class TmdbClient : ITmdbClient
     private string Q(string path, string qs)
         => $"{path}?api_key={_apiKey}&language={_language}&{qs}";
 
+    // Image URL generation methods
+    public string? GetImageUrl(string? imagePath, TmdbImageType imageType, TmdbImageSize size = TmdbImageSize.Original)
+    {
+        return TmdbImageHelper.BuildImageUrl(imagePath, imageType, size);
+    }
+
+    public string? GetPosterUrl(string? posterPath, TmdbImageSize size = TmdbImageSize.W342)
+    {
+        return TmdbImageHelper.BuildImageUrl(posterPath, TmdbImageType.Poster, size);
+    }
+
+    public string? GetBackdropUrl(string? backdropPath, TmdbImageSize size = TmdbImageSize.W780)
+    {
+        return TmdbImageHelper.BuildImageUrl(backdropPath, TmdbImageType.Backdrop, size);
+    }
+
+    public string? GetLogoUrl(string? logoPath, TmdbImageSize size = TmdbImageSize.W185)
+    {
+        return TmdbImageHelper.BuildImageUrl(logoPath, TmdbImageType.Logo, size);
+    }
+
+    public string? GetProfileUrl(string? profilePath, TmdbImageSize size = TmdbImageSize.W185)
+    {
+        return TmdbImageHelper.BuildImageUrl(profilePath, TmdbImageType.Profile, size);
+    }
+
+    public string? GetStillUrl(string? stillPath, TmdbImageSize size = TmdbImageSize.W300)
+    {
+        return TmdbImageHelper.BuildImageUrl(stillPath, TmdbImageType.Still, size);
+    }
+
     public async Task<IReadOnlyList<TmdbSearchResult>> SearchAsync(string query, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -37,6 +68,7 @@ public class TmdbClient : ITmdbClient
                     r.media_type == "tv" ? (r.name ?? "<senza nome>") : (r.title ?? "<senza titolo>"),
                     r.media_type == "tv",
                     r.poster_path,
+                    r.backdrop_path,
                     r.overview
                 ),
                 r.popularity
@@ -70,7 +102,7 @@ public class TmdbClient : ITmdbClient
         if (dto == null) return null;
         DateTime? rel = null;
         if (DateTime.TryParse(dto.release_date, out var d)) rel = d;
-        return new TmdbMovieDetail(dto.id, dto.title, dto.runtime, rel);
+        return new TmdbMovieDetail(dto.id, dto.title, dto.runtime, rel, dto.poster_path, dto.backdrop_path);
     }
 
     public async Task<TmdbSeriesDetail?> GetSeriesAsync(int id, CancellationToken ct = default)
@@ -82,7 +114,7 @@ public class TmdbClient : ITmdbClient
             .Select(s => s.season_number)
             .OrderBy(n => n)
             .ToList() ?? new List<int>();
-        return new TmdbSeriesDetail(dto.id, dto.name, dto.number_of_seasons, seasonNums);
+        return new TmdbSeriesDetail(dto.id, dto.name, dto.number_of_seasons, seasonNums, dto.poster_path, dto.backdrop_path);
     }
 
     public async Task<TmdbSeasonDetail?> GetSeasonAsync(int seriesId, int seasonNumber, CancellationToken ct = default)
@@ -90,19 +122,18 @@ public class TmdbClient : ITmdbClient
         var dto = await _http.GetFromJsonAsync<SeasonDetailDto>(Q($"tv/{seriesId}/season/{seasonNumber}", ""), ct);
         if (dto == null) return null;
         var eps = dto.episodes?
-            .Select(e => new TmdbEpisodeInfo(e.episode_number, e.name ?? $"Episodio {e.episode_number}", e.runtime))
+            .Select(e => new TmdbEpisodeInfo(e.episode_number, e.name ?? $"Episodio {e.episode_number}", e.runtime, e.still_path))
             .OrderBy(e => e.EpisodeNumber)
             .ToList() ?? new List<TmdbEpisodeInfo>();
-        return new TmdbSeasonDetail(seriesId, seasonNumber, eps);
+        return new TmdbSeasonDetail(seriesId, seasonNumber, eps, dto.poster_path);
     }
 
+    // Internal DTOs
     private record MultiSearchDto(List<MultiItem> results);
-
-    private record MultiItem(int id, string media_type, string? title, string? name, string? poster_path, string? overview, double popularity);
-
-    private record MovieDetailDto(int id, string title, int? runtime, string? release_date);
-    private record SeriesDetailDto(int id, string name, int? number_of_seasons, List<SeasonItem>? seasons);
+    private record MultiItem(int id, string media_type, string? title, string? name, string? poster_path, string? backdrop_path, string? overview, double popularity);
+    private record MovieDetailDto(int id, string title, int? runtime, string? release_date, string? poster_path, string? backdrop_path);
+    private record SeriesDetailDto(int id, string name, int? number_of_seasons, List<SeasonItem>? seasons, string? poster_path, string? backdrop_path);
     private record SeasonItem(int id, int season_number);
-    private record SeasonDetailDto(List<EpisodeItem>? episodes);
-    private record EpisodeItem(int episode_number, string? name, int? runtime);
+    private record SeasonDetailDto(List<EpisodeItem>? episodes, string? poster_path);
+    private record EpisodeItem(int episode_number, string? name, int? runtime, string? still_path);
 }
