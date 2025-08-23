@@ -1,0 +1,701 @@
+@page "/media/movie/{MovieSlug}"
+@page "/media/series/{SeriesSlug}"
+@using Microsoft.EntityFrameworkCore
+@using Streamify.Data
+@using Streamify.TMDB
+@using Streamify.Utility
+
+@inject StreamifyDbContext Db
+@inject ITmdbClient Tmdb
+@inject ILogger<Media> Logger
+
+<PageTitle>@GetPageTitle()</PageTitle>
+
+@code {
+    [Parameter] public string? MovieSlug { get; set; }
+    [Parameter] public string? SeriesSlug { get; set; }
+
+    private Movie? Movie;
+    private Series? Series;
+    private TmdbMovieDetail? MovieDetail;
+    private TmdbSeriesDetail? SeriesDetail;
+    private TmdbSearchResult? MovieSearchMeta;
+    private TmdbSearchResult? SeriesSearchMeta;
+    private List<Episode>? Episodes;
+    private List<Episode>? FilteredEpisodes;
+    private List<int>? AvailableSeasons;
+    private int? SelectedSeason;
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadMediaData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading media data");
+            ErrorMessage = "Failed to load media information.";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task LoadMediaData()
+    {
+        if (!string.IsNullOrEmpty(MovieSlug))
+        {
+            await LoadMovieData();
+        }
+        else if (!string.IsNullOrEmpty(SeriesSlug))
+        {
+            await LoadSeriesData();
+        }
+    }
+
+    private async Task LoadMovieData()
+    {
+        Movie = (await Db.Movies.ToListAsync())
+            .AsEnumerable()
+            .FirstOrDefault(m => Slugify.SlugifyUrl(m.Title) == MovieSlug);
+        
+        if (Movie != null)
+        {
+            var tasks = new List<Task>
+            {
+                LoadMovieDetail(),
+                LoadMovieSearchMeta()
+            };
+            await Task.WhenAll(tasks);
+        }
+    }
+
+    private async Task LoadMovieDetail()
+    {
+        try
+        {
+            MovieDetail = await Tmdb.GetMovieAsync(Movie!.TmdbId);
+            if (MovieDetail != null)
+            {
+                Logger.LogInformation("Movie detail loaded - PosterPath: {PosterPath}, BackdropPath: {BackdropPath}", 
+                    MovieDetail.PosterPath, MovieDetail.BackdropPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load movie detail for TmdbId: {TmdbId}", Movie!.TmdbId);
+        }
+    }
+
+    private async Task LoadMovieSearchMeta()
+    {
+        try
+        {
+            var searchResults = await Tmdb.SearchAsync(Movie!.Title);
+            MovieSearchMeta = searchResults.FirstOrDefault(r => r.Id == Movie.TmdbId);
+            if (MovieSearchMeta != null)
+            {
+                Logger.LogInformation("Movie search meta loaded - Overview available: {HasOverview}", 
+                    !string.IsNullOrEmpty(MovieSearchMeta.Overview));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load movie search meta for: {Title}", Movie!.Title);
+        }
+    }
+
+    private async Task LoadSeriesData()
+    {
+        Series = (await Db.Series.Include(s => s.Episodes).ToListAsync())
+            .AsEnumerable()
+            .FirstOrDefault(s => Slugify.SlugifyUrl(s.Title) == SeriesSlug);
+        
+        if (Series != null)
+        {
+            var tasks = new List<Task>
+            {
+                LoadSeriesDetail(),
+                LoadSeriesSearchMeta()
+            };
+            await Task.WhenAll(tasks);
+            
+            Episodes = Series.Episodes
+                .OrderBy(e => e.SeasonNumber)
+                .ThenBy(e => e.EpisodeNumber)
+                .ToList();
+                
+            // Get unique seasons for the dropdown
+            AvailableSeasons = Episodes
+                .Select(e => e.SeasonNumber)
+                .Distinct()
+                .OrderBy(s => s)
+                .ToList();
+                
+            // Set default selected season to the first one
+            SelectedSeason = AvailableSeasons.FirstOrDefault();
+            FilterEpisodesBySeason();
+        }
+    }
+
+    private async Task LoadSeriesDetail()
+    {
+        try
+        {
+            SeriesDetail = await Tmdb.GetSeriesAsync(Series!.TmdbId);
+            if (SeriesDetail != null)
+            {
+                Logger.LogInformation("Series detail loaded - PosterPath: {PosterPath}, BackdropPath: {BackdropPath}", 
+                    SeriesDetail.PosterPath, SeriesDetail.BackdropPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load series detail for TmdbId: {TmdbId}", Series!.TmdbId);
+        }
+    }
+
+    private async Task LoadSeriesSearchMeta()
+    {
+        try
+        {
+            var searchResults = await Tmdb.SearchAsync(Series!.Title);
+            SeriesSearchMeta = searchResults.FirstOrDefault(r => r.Id == Series.TmdbId);
+            if (SeriesSearchMeta != null)
+            {
+                Logger.LogInformation("Series search meta loaded - Overview available: {HasOverview}", 
+                    !string.IsNullOrEmpty(SeriesSearchMeta.Overview));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load series search meta for: {Title}", Series!.Title);
+        }
+    }
+
+    private void PlayMovie()
+    {
+        Logger.LogInformation("Playing movie: {Title} (ID: {MovieId})", Movie?.Title, Movie?.MovieId);
+        // TODO: Implement play logic for Movie
+    }
+
+    private void PlayEpisode(int episodeId)
+    {
+        var episode = Episodes?.FirstOrDefault(e => e.EpisodeId == episodeId);
+        Logger.LogInformation("Playing episode: {EpisodeTitle} (ID: {EpisodeId})", episode?.Title, episodeId);
+        // TODO: Implement play logic for Episode
+    }
+
+    private string GetPageTitle()
+    {
+        return Movie?.Title ?? Series?.Title ?? "Media Details";
+    }
+
+    private string? GetBackdropImageUrl(string? backdropPath, string? posterPath)
+    {
+        if (!string.IsNullOrEmpty(backdropPath))
+        {
+            var url = Tmdb.GetBackdropUrl(backdropPath, TmdbImageSize.Original);
+            Logger.LogInformation("Generated backdrop URL: {Url}", url);
+            return url;
+        }
+        
+        if (!string.IsNullOrEmpty(posterPath))
+        {
+            var url = Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W780);
+            Logger.LogInformation("Generated poster URL as backdrop: {Url}", url);
+            return url;
+        }
+        
+        return null;
+    }
+
+    private string? GetPosterImageUrl(string? posterPath)
+    {
+        if (!string.IsNullOrEmpty(posterPath))
+        {
+            var url = Tmdb.GetPosterUrl(posterPath, TmdbImageSize.Original);
+            Logger.LogInformation("Generated poster URL: {Url}", url);
+            return url;
+        }
+        
+        return null;
+    }
+
+    private string GetRuntimeText(int? runtime)
+    {
+        if (!runtime.HasValue) return "Unknown";
+        
+        var hours = runtime.Value / 60;
+        var minutes = runtime.Value % 60;
+        
+        return hours > 0 ? $"{hours}h {minutes}m" : $"{minutes}m";
+    }
+
+    private void FilterEpisodesBySeason()
+    {
+        if (Episodes == null) return;
+        
+        FilteredEpisodes = SelectedSeason.HasValue 
+            ? Episodes.Where(e => e.SeasonNumber == SelectedSeason.Value)
+                     .OrderBy(e => e.EpisodeNumber)
+                     .ToList()
+            : Episodes.OrderBy(e => e.SeasonNumber)
+                     .ThenBy(e => e.EpisodeNumber)
+                     .ToList();
+    }
+
+    private void OnSeasonChanged(int? season)
+    {
+        SelectedSeason = season;
+        FilterEpisodesBySeason();
+    }
+}
+
+@if (IsLoading)
+{
+    <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
+        <MudStack AlignItems="AlignItems.Center" Spacing="4">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            <MudText Typo="Typo.h6">Loading media details...</MudText>
+        </MudStack>
+    </MudContainer>
+}
+else if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
+            <MudText Typo="Typo.h6">Error Loading Media</MudText>
+            <MudText>@ErrorMessage</MudText>
+        </MudAlert>
+    </MudContainer>
+}
+else if (Movie != null)
+{
+    <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
+        @* Hero Section with Backdrop *@
+        @{
+            var backdropUrl = GetBackdropImageUrl(MovieDetail?.BackdropPath, MovieDetail?.PosterPath);
+        }
+        
+        <MudPaper Elevation="0" Class="position-relative" Style="min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%);">
+            @if (!string.IsNullOrEmpty(backdropUrl))
+            {
+                <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
+                    <img src="@backdropUrl" 
+                         alt="@Movie.Title backdrop"
+                         style="width: 100%; height: 100%; object-fit: cover;"
+                         onerror="console.error('Backdrop image failed to load:', '@backdropUrl'); this.style.display='none';" />
+                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%);"></div>
+                </div>
+            }
+            
+            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 2; padding-top: 4rem; padding-bottom: 3rem;">
+                <MudGrid AlignItems="End">
+                    @* Poster Column *@
+                    <MudItem xs="12" md="3">
+                        @{
+                            var posterUrl = GetPosterImageUrl(MovieDetail?.PosterPath);
+                        }
+                        @if (!string.IsNullOrEmpty(posterUrl))
+                        {
+                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px;">
+                                <img src="@posterUrl" 
+                                     alt="@Movie.Title poster"
+                                     style="width: 100%; height: auto; display: block;"
+                                     onerror="console.error('Poster image failed to load:', '@posterUrl'); this.parentElement.style.display='none';" />
+                            </MudPaper>
+                        }
+                        else
+                        {
+                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; background-color: #f5f5f5; max-width: 250px;">
+                                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Movie" Size="Size.Large" Color="Color.Default" />
+                                    <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    </MudItem>
+
+                    @* Content Column *@
+                    <MudItem xs="12" md="9">
+                        <MudStack Spacing="4" Class="pa-4" Style="color: white;">
+                            <div>
+                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7);">
+                                    @Movie.Title
+                                </MudText>
+                                
+                                @if (!string.IsNullOrEmpty(MovieSearchMeta?.Overview))
+                                {
+                                    <MudText Typo="Typo.subtitle1" Style="color: rgba(255,255,255,0.9); font-style: italic; text-shadow: 1px 1px 2px rgba(0,0,0,0.7); margin-top: 0.5rem;">
+                                        @(MovieSearchMeta.Overview.Length > 150 ? MovieSearchMeta.Overview.Substring(0, 150) + "..." : MovieSearchMeta.Overview)
+                                    </MudText>
+                                }
+                            </div>
+
+                            <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+                                @if (Movie.ReleaseDate.HasValue)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.CalendarToday" 
+                                             Color="Color.Primary" 
+                                             Variant="Variant.Filled"
+                                             Style="backdrop-filter: blur(10px); background-color: rgba(25, 118, 210, 0.8);">
+                                        @Movie.ReleaseDate.Value.ToString("yyyy")
+                                    </MudChip>
+                                }
+                                
+                                @if (MovieDetail?.Runtime.HasValue == true)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.AccessTime" 
+                                             Color="Color.Primary" 
+                                             Variant="Variant.Filled"
+                                             Style="backdrop-filter: blur(10px); background-color: rgba(25, 118, 210, 0.8);">
+                                        @GetRuntimeText(MovieDetail.Runtime)
+                                    </MudChip>
+                                }
+                                else if (Movie.DurationMinutes.HasValue)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.AccessTime" 
+                                             Color="Color.Primary" 
+                                             Variant="Variant.Filled"
+                                             Style="backdrop-filter: blur(10px); background-color: rgba(25, 118, 210, 0.8);">
+                                        @GetRuntimeText(Movie.DurationMinutes)
+                                    </MudChip>
+                                }
+                            </MudStack>
+
+                            <MudStack Row="true" Spacing="3">
+                                <MudButton Variant="Variant.Filled" 
+                                           Color="Color.Primary" 
+                                           Size="Size.Large"
+                                           StartIcon="@Icons.Material.Filled.PlayArrow"
+                                           OnClick="@PlayMovie"
+                                           Style="backdrop-filter: blur(10px);">
+                                    Play Movie
+                                </MudButton>
+                                
+                                <MudButton Variant="Variant.Outlined" 
+                                           Color="Color.Surface"
+                                           StartIcon="@Icons.Material.Filled.Add"
+                                           Style="backdrop-filter: blur(10px); border-color: rgba(255,255,255,0.5); color: white;">
+                                    Watchlist
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            </MudContainer>
+        </MudPaper>
+
+        @* Details Section *@
+        <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
+            @if (!string.IsNullOrEmpty(MovieSearchMeta?.Overview))
+            {
+                <MudCard Elevation="4" Class="mb-6">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />
+                                Overview
+                            </MudText>
+                        </CardHeaderContent>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.body1">@MovieSearchMeta.Overview</MudText>
+                    </MudCardContent>
+                </MudCard>
+            }
+
+            @* Movie Details Card *@
+            <MudCard Elevation="4">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">
+                            <MudIcon Icon="@Icons.Material.Filled.Info" Class="me-2" />
+                            Movie Information
+                        </MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudGrid>
+                        <MudItem xs="12" sm="6" lg="4">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Default">
+                                    <MudIcon Icon="@Icons.Material.Filled.Title" Size="Size.Small" Class="me-1" />
+                                    Original Title
+                                </MudText>
+                                <MudText Typo="Typo.body2">@(MovieDetail?.Title ?? Movie.Title)</MudText>
+                            </MudStack>
+                        </MudItem>
+                        
+                        @if (Movie.ReleaseDate.HasValue)
+                        {
+                            <MudItem xs="12" sm="6" lg="4">
+                                <MudStack Spacing="1">
+                                    <MudText Typo="Typo.caption" Color="Color.Default">
+                                        <MudIcon Icon="@Icons.Material.Filled.CalendarToday" Size="Size.Small" Class="me-1" />
+                                        Release Date
+                                    </MudText>
+                                    <MudText Typo="Typo.body2">@Movie.ReleaseDate.Value.ToString("MMMM dd, yyyy")</MudText>
+                                </MudStack>
+                            </MudItem>
+                        }
+                        
+                        @if (MovieDetail?.Runtime.HasValue == true || Movie.DurationMinutes.HasValue)
+                        {
+                            <MudItem xs="12" sm="6" lg="4">
+                                <MudStack Spacing="1">
+                                    <MudText Typo="Typo.caption" Color="Color.Default">
+                                        <MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" Class="me-1" />
+                                        Runtime
+                                    </MudText>
+                                    <MudText Typo="Typo.body2">@GetRuntimeText(MovieDetail?.Runtime ?? Movie.DurationMinutes)</MudText>
+                                </MudStack>
+                            </MudItem>
+                        }
+                        
+                        <MudItem xs="12" sm="6" lg="4">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Default">
+                                    <MudIcon Icon="@Icons.Material.Filled.Badge" Size="Size.Small" Class="me-1" />
+                                    TMDB ID
+                                </MudText>
+                                <MudText Typo="Typo.body2">@Movie.TmdbId</MudText>
+                            </MudStack>
+                        </MudItem>
+
+                        @if (Movie.MediaFiles?.Any() == true)
+                        {
+                            <MudItem xs="12" sm="6" lg="4">
+                                <MudStack Spacing="1">
+                                    <MudText Typo="Typo.caption" Color="Color.Default">
+                                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="me-1" />
+                                        Media Files
+                                    </MudText>
+                                    <MudText Typo="Typo.body2">@Movie.MediaFiles.Count file@(Movie.MediaFiles.Count > 1 ? "s" : "") available</MudText>
+                                </MudStack>
+                            </MudItem>
+                        }
+
+                        <MudItem xs="12" sm="6" lg="4">
+                            <MudStack Spacing="1">
+                                <MudText Typo="Typo.caption" Color="Color.Default">
+                                    <MudIcon Icon="@Icons.Material.Filled.Category" Size="Size.Small" Class="me-1" />
+                                    Type
+                                </MudText>
+                                <MudText Typo="Typo.body2">Movie</MudText>
+                            </MudStack>
+                        </MudItem>
+                    </MudGrid>
+                </MudCardContent>
+            </MudCard>
+        </MudContainer>
+    </MudContainer>
+}
+else if (Series != null)
+{
+    <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
+        @* Hero Section with Backdrop *@
+        @{
+            var backdropUrl = GetBackdropImageUrl(SeriesDetail?.BackdropPath, SeriesDetail?.PosterPath);
+        }
+        
+        <MudPaper Elevation="0" Class="position-relative" Style="min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%);">
+            @if (!string.IsNullOrEmpty(backdropUrl))
+            {
+                <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
+                    <img src="@backdropUrl" 
+                         alt="@Series.Title backdrop"
+                         style="width: 100%; height: 100%; object-fit: cover;"
+                         onerror="console.error('Backdrop image failed to load:', '@backdropUrl'); this.style.display='none';" />
+                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%);"></div>
+                </div>
+            }
+            
+            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 2; padding-top: 4rem; padding-bottom: 3rem;">
+                <MudGrid AlignItems="End">
+                    @* Poster Column *@
+                    <MudItem xs="12" md="3">
+                        @{
+                            var posterUrl = GetPosterImageUrl(SeriesDetail?.PosterPath);
+                        }
+                        @if (!string.IsNullOrEmpty(posterUrl))
+                        {
+                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px;">
+                                <img src="@posterUrl" 
+                                     alt="@Series.Title poster"
+                                     style="width: 100%; height: auto; display: block;"
+                                     onerror="console.error('Poster image failed to load:', '@posterUrl'); this.parentElement.style.display='none';" />
+                            </MudPaper>
+                        }
+                        else
+                        {
+                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8);">
+                                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Tv" Size="Size.Large" Color="Color.Default" />
+                                    <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    </MudItem>
+
+                    @* Content Column *@
+                    <MudItem xs="12" md="9">
+                        <MudStack Spacing="4" Class="pa-4" Style="color: white;">
+                            <div>
+                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7);">
+                                    @Series.Title
+                                </MudText>
+                                
+                                @if (!string.IsNullOrEmpty(SeriesSearchMeta?.Overview))
+                                {
+                                    <MudText Typo="Typo.subtitle1" Style="color: rgba(255,255,255,0.9); font-style: italic; text-shadow: 1px 1px 2px rgba(0,0,0,0.7); margin-top: 0.5rem;">
+                                        @(SeriesSearchMeta.Overview.Length > 150 ? SeriesSearchMeta.Overview.Substring(0, 150) + "..." : SeriesSearchMeta.Overview)
+                                    </MudText>
+                                }
+                            </div>
+
+                            <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+                                @if (SeriesDetail?.NumberOfSeasons > 0)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.Tv" 
+                                             Color="Color.Primary" 
+                                             Variant="Variant.Filled"
+                                             Style="backdrop-filter: blur(10px); background-color: rgba(25, 118, 210, 0.8);">
+                                        @SeriesDetail.NumberOfSeasons Season@(SeriesDetail.NumberOfSeasons > 1 ? "s" : "")
+                                    </MudChip>
+                                }
+                                
+                                @if (Episodes?.Count > 0)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.PlaylistPlay" 
+                                             Color="Color.Secondary" 
+                                             Variant="Variant.Filled"
+                                             Style="backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8);">
+                                        @Episodes.Count Episode@(Episodes.Count > 1 ? "s" : "")
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            </MudContainer>
+        </MudPaper>
+
+        @* Details Section *@
+        <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
+            @if (!string.IsNullOrEmpty(SeriesSearchMeta?.Overview))
+            {
+                <MudCard Elevation="4" Class="mb-6">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />
+                                Overview
+                            </MudText>
+                        </CardHeaderContent>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.body1">@SeriesSearchMeta.Overview</MudText>
+                    </MudCardContent>
+                </MudCard>
+            }
+
+            @* Episodes Table *@
+            @if (Episodes?.Any() == true)
+            {
+                <MudCard Elevation="4">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Class="me-2" />
+                                Episodes (@Episodes.Count)
+                            </MudText>
+                        </CardHeaderContent>
+                    </MudCardHeader>
+                    <MudCardContent Class="pa-0">
+                        <MudTable Items="Episodes" 
+                                  Hover="true" 
+                                  Dense="true"
+                                  FixedHeader="true"
+                                  Height="500px"
+                                  Elevation="0">
+                            <HeaderContent>
+                                <MudTh>Season</MudTh>
+                                <MudTh>Episode</MudTh>
+                                <MudTh>Title</MudTh>
+                                @if (Episodes.Any(e => e.DurationMinutes.HasValue))
+                                {
+                                    <MudTh>Duration</MudTh>
+                                }
+                                <MudTh Style="width: 100px;">Action</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Season">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
+                                        S@context.SeasonNumber.ToString("D2")
+                                    </MudChip>
+                                </MudTd>
+                                <MudTd DataLabel="Episode">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">
+                                        E@context.EpisodeNumber.ToString("D2")
+                                    </MudChip>
+                                </MudTd>
+                                <MudTd DataLabel="Title">
+                                    <MudText Typo="Typo.body2">@context.Title</MudText>
+                                </MudTd>
+                                @if (Episodes.Any(e => e.DurationMinutes.HasValue))
+                                {
+                                    <MudTd DataLabel="Duration">
+                                        <MudText Typo="Typo.body2" Color="Color.Default">
+                                            @(context.DurationMinutes.HasValue ? GetRuntimeText(context.DurationMinutes) : "-")
+                                        </MudText>
+                                    </MudTd>
+                                }
+                                <MudTd DataLabel="Action">
+                                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" 
+                                                   Color="Color.Primary" 
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => PlayEpisode(context.EpisodeId))"
+                                                   Title="Play Episode" />
+                                </MudTd>
+                            </RowTemplate>
+                            <PagerContent>
+                                <MudTablePager PageSizeOptions="new int[]{10, 25, 50}" 
+                                               InfoFormat="@("{first_item}-{last_item} of {all_items}")"/>
+                            </PagerContent>
+                        </MudTable>
+                    </MudCardContent>
+                </MudCard>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    <MudText Typo="Typo.body1">No episodes found for this series.</MudText>
+                </MudAlert>
+            }
+        </MudContainer>
+    </MudContainer>
+}
+else
+{
+    <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
+        <MudStack Spacing="4" AlignItems="AlignItems.Center">
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">
+                <MudText Typo="Typo.h6">Media Not Found</MudText>
+                <MudText>The requested movie or series could not be found in our database.</MudText>
+            </MudAlert>
+            
+            <MudButton Variant="Variant.Outlined" 
+                       Color="Color.Primary"
+                       Href="/"
+                       StartIcon="@Icons.Material.Filled.Home">
+                Return to Home
+            </MudButton>
+        </MudStack>
+    </MudContainer>
+}

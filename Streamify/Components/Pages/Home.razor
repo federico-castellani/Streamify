@@ -3,9 +3,11 @@
 @using Microsoft.EntityFrameworkCore
 @using Streamify.Data
 @using Streamify.TMDB
+@using Streamify.Utility
 @inject StreamifyDbContext Db
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ITmdbClient Tmdb
+@inject NavigationManager Nav
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
     <MudTextField @bind-Value="_searchText"
@@ -516,6 +518,21 @@
             builder.AddAttribute(seq++, "Class", "d-flex flex-column");
             builder.AddAttribute(seq++, "Style", "height: 100%; cursor: pointer;");
             builder.AddAttribute(seq++, "Elevation", 2);
+            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () =>
+            {
+                if (meta.IsSeries)
+                {
+                    var series = _popularSeries.FirstOrDefault(s => s.TmdbId == meta.TmdbId);
+                    if (series != null)
+                        Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}");
+                }
+                else
+                {
+                    var movie = _popularMovies.FirstOrDefault(m => m.TmdbId == meta.TmdbId);
+                    if (movie != null)
+                        Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(movie.Title)}");
+                }
+            }));
             builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
             {
                 var s = 0;
