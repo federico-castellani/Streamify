@@ -1,0 +1,469 @@
+@page "/media/movie/{MovieSlug}/play"
+@page "/media/series/{SeriesSlug}/play/{EpisodeSlug}"
+@inject StreamifyDbContext Db
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@using Microsoft.EntityFrameworkCore
+@using Streamify.Components.Layout
+@using Streamify.Data
+@using Streamify.Utility
+@implements IDisposable
+@layout PlayerLayout
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pa-0">
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <MudAlert Severity="Severity.Error" Class="ma-4">
+            <MudText>@errorMessage</MudText>
+        </MudAlert>
+    }
+    else if (!string.IsNullOrEmpty(videoPath))
+    {
+        <div class="video-container" style="position: relative; background: black; min-height: 100vh;">
+            <!-- Video Element -->
+            <video @ref="videoElement" 
+                   id="mediaPlayer"
+                   style="width: 100%; height: 100vh; object-fit: contain;"
+                   @onloadedmetadata="OnVideoLoaded"
+                   @ontimeupdate="OnTimeUpdate"
+                   @onplay="OnPlay"
+                   @onpause="OnPause"
+                   @onended="OnEnded"
+                   @onclick="ToggleControls">
+                <source src="@videoPath" type="video/mp4" />
+                Your browser does not support the video tag.
+            </video>
+
+            <!-- Custom Controls Overlay -->
+            <div class="controls-overlay" style="@GetControlsStyle()">
+                <!-- Top Bar -->
+                <div class="top-controls" style="position: absolute; top: 0; left: 0; right: 0; background: linear-gradient(rgba(0,0,0,0.7), transparent); padding: 16px; z-index: 1000;">
+                    <MudGrid AlignItems="Center">
+                        <MudItem xs="1">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" 
+                                         Color="Color.Primary" 
+                                         Size="Size.Large"
+                                         OnClick="GoBack"
+                                         Style="background: rgba(255,255,255,0.2); color: white;" />
+                        </MudItem>
+                        <MudItem xs="10">
+                            <MudText Typo="Typo.h6" Style="color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                                @GetMediaTitle()
+                            </MudText>
+                            @if (!string.IsNullOrEmpty(GetMediaSubtitle()))
+                            {
+                                <MudText Typo="Typo.body2" Style="color: #cccccc; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                                    @GetMediaSubtitle()
+                                </MudText>
+                            }
+                        </MudItem>
+                        <MudItem xs="1">
+                            <MudIconButton Icon="@Icons.Material.Filled.Settings" 
+                                         Color="Color.Primary" 
+                                         Size="Size.Large"
+                                         OnClick="ToggleSettings"
+                                         Style="background: rgba(255,255,255,0.1); color: white;" />
+                        </MudItem>
+                    </MudGrid>
+                </div>
+
+                <!-- Center Play/Pause Button -->
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001;">
+                    <MudFab Color="Color.Primary" 
+                            Size="Size.Large"
+                            Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
+                            OnClick="TogglePlayPause"
+                            Style="@(showCenterButton ? "opacity: 1; transition: opacity 0.3s;" : "opacity: 0; transition: opacity 0.3s; pointer-events: none;")" />
+                </div>
+
+                <!-- Bottom Controls -->
+                <div class="bottom-controls" style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.7)); padding: 16px; z-index: 1000;">
+                    <!-- Progress Bar -->
+                    <MudSlider T="double" 
+                               Min="0" 
+                               Max="@duration" 
+                               Step="1"
+                               Value="@currentTime" 
+                               ValueChanged="OnSeek"
+                               Color="Color.Primary"
+                               Class="mb-4" />
+                    
+                    <MudGrid AlignItems="Center">
+                        <MudItem xs="1">
+                            <MudIconButton Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)" 
+                                         Color="Color.Primary"
+                                         Size="Size.Large"
+                                         OnClick="TogglePlayPause"
+                                         Style="background: rgba(255,255,255,0.2); color: white;" />
+                        </MudItem>
+                        <MudItem xs="1">
+                            <MudIconButton Icon="@Icons.Material.Filled.Replay10" 
+                                         Color="Color.Primary"
+                                         Size="Size.Large"
+                                         OnClick="() => Seek(-10)"
+                                         Style="background: rgba(255,255,255,0.1); color: white;" />
+                        </MudItem>
+                        <MudItem xs="1">
+                            <MudIconButton Icon="@Icons.Material.Filled.Forward10" 
+                                         Color="Color.Primary"
+                                         Size="Size.Large"
+                                         OnClick="() => Seek(10)"
+                                         Style="background: rgba(255,255,255,0.1); color: white;" />
+                        </MudItem>
+                        <MudItem xs="2">
+                            <MudText Style="color: white; font-size: 14px;">
+                                @FormatTime(currentTime) / @FormatTime(duration)
+                            </MudText>
+                        </MudItem>
+                        <MudItem xs="2">
+                            <MudGrid AlignItems="Center">
+                                <MudItem xs="4">
+                                    <MudIconButton Icon="@(isMuted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)" 
+                                                 Color="Color.Primary"
+                                                 Size="Size.Large"
+                                                 OnClick="ToggleMute"
+                                                 Style="background: rgba(255,255,255,0.1); color: white;" />
+                                </MudItem>
+                                <MudItem xs="8">
+                                    <MudSlider T="double" 
+                                               Min="0" 
+                                               Max="1" 
+                                               Step="0.1"
+                                               Value="@volume" 
+                                               ValueChanged="OnVolumeChange"
+                                               Color="Color.Primary" />
+                                </MudItem>
+                            </MudGrid>
+                        </MudItem>
+                        <MudItem xs="2">
+                            <MudSelect T="double" Value="@playbackSpeed" ValueChanged="OnSpeedChange" 
+                                     Style="color: white; min-width: 80px; background: rgba(255,255,255,0.1); border-radius: 4px;" 
+                                     Dense="true">
+                                <MudSelectItem Value="0.5">0.5x</MudSelectItem>
+                                <MudSelectItem Value="0.75">0.75x</MudSelectItem>
+                                <MudSelectItem Value="1.0">1x</MudSelectItem>
+                                <MudSelectItem Value="1.25">1.25x</MudSelectItem>
+                                <MudSelectItem Value="1.5">1.5x</MudSelectItem>
+                                <MudSelectItem Value="2.0">2x</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="2">
+                            <MudIconButton Icon="@Icons.Material.Filled.Fullscreen" 
+                                         Color="Color.Primary" 
+                                         Size="Size.Large"
+                                         OnClick="ToggleFullscreen"
+                                         Style="background: rgba(255,255,255,0.1); color: white;" />
+                        </MudItem>
+                    </MudGrid>
+                </div>
+
+                <!-- Episode Navigation (for series) -->
+                @if (!string.IsNullOrEmpty(SeriesSlug) && episodes?.Count > 0)
+                {
+                    <div class="episode-navigation" style="@GetEpisodeNavStyle()">
+                        <MudPaper Elevation="3" Class="pa-3" Style="background: rgba(0,0,0,0.9); color: white; max-height: 200px; overflow-y: auto;">
+                            <MudText Typo="Typo.h6" Class="mb-2">Episodes</MudText>
+                            @foreach (var ep in episodes)
+                            {
+                                var isCurrentEpisode = Slugify.SlugifyUrl(ep.Title) == EpisodeSlug;
+                                <MudButton Variant="@(isCurrentEpisode ? Variant.Filled : Variant.Text)"
+                                         Color="@(isCurrentEpisode ? Color.Primary : Color.Default)"
+                                         FullWidth="true"
+                                         Class="mb-1"
+                                         OnClick="() => NavigateToEpisode(ep)"
+                                         Style="justify-content: flex-start; text-align: left;">
+                                    <MudText>@ep.Title</MudText>
+                                </MudButton>
+                            }
+                        </MudPaper>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public string? MovieSlug { get; set; }
+    [Parameter] public string? SeriesSlug { get; set; }
+    [Parameter] public string? EpisodeSlug { get; set; }
+
+    private ElementReference videoElement;
+    private string? videoPath;
+    private string? errorMessage;
+    private string? mediaTitle;
+    private string? mediaSubtitle;
+    
+    // Video state
+    private bool isPlaying = false;
+    private bool isMuted = false;
+    private double currentTime = 0;
+    private double duration = 0;
+    private double volume = 1.0;
+    private double playbackSpeed = 1.0;
+    
+    // UI state
+    private bool showControls = true;
+    private bool showCenterButton = false;
+    private bool showEpisodeNav = false;
+    private Timer? controlsTimer;
+    private List<Episode>? episodes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(MovieSlug))
+        {
+            await LoadMovie();
+        }
+        else if (!string.IsNullOrEmpty(SeriesSlug) && !string.IsNullOrEmpty(EpisodeSlug))
+        {
+            await LoadEpisode();
+        }
+        else
+        {
+            errorMessage = "Invalid media request.";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrEmpty(videoPath))
+        {
+            await JSRuntime.InvokeVoidAsync("initializeVideoPlayer", videoElement);
+            StartControlsTimer();
+        }
+    }
+
+    private async Task LoadMovie()
+    {
+        var movie = (await Db.Movies
+            .Include(m => m.MediaFiles)
+            .ToListAsync())
+            .FirstOrDefault(m => Slugify.SlugifyUrl(m.Title) == MovieSlug);
+
+        if (movie != null)
+        {
+            var mediaFile = movie.MediaFiles.FirstOrDefault();
+            if (mediaFile != null)
+            {
+                videoPath = $"/Media/Movies/{MovieSlug}/" + mediaFile.FilePath.TrimStart('/');
+                mediaTitle = movie.Title;
+                mediaSubtitle = $"{movie.ReleaseDate?.Year} • Movie";
+            }
+            else
+            {
+                errorMessage = "Media file not found for this movie.";
+            }
+        }
+        else
+        {
+            errorMessage = "Movie not found.";
+        }
+    }
+
+    private async Task LoadEpisode()
+    {
+        var series = (await Db.Series
+            .Include(s => s.Episodes.OrderBy(e => e.EpisodeNumber))
+            .ThenInclude(e => e.MediaFile)
+            .ToListAsync())
+            .FirstOrDefault(s => Slugify.SlugifyUrl(s.Title) == SeriesSlug);
+
+        if (series != null)
+        {
+            episodes = series.Episodes.ToList();
+            var episode = episodes.FirstOrDefault(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug);
+
+            if (episode?.MediaFile != null)
+            {
+                videoPath = $"/Media/Series/{SeriesSlug}/" + episode.MediaFile.FilePath.TrimStart('/');
+                mediaTitle = series.Title;
+                mediaSubtitle = $"S{episode.SeasonNumber}E{episode.EpisodeNumber} • {episode.Title}";
+            }
+            else
+            {
+                errorMessage = "Media file not found for this episode.";
+            }
+        }
+        else
+        {
+            errorMessage = "Series not found.";
+        }
+    }
+
+    private string GetMediaTitle() => mediaTitle ?? "Unknown Media";
+    private string GetMediaSubtitle() => mediaSubtitle ?? "";
+
+    private async Task OnVideoLoaded()
+    {
+        duration = await JSRuntime.InvokeAsync<double>("getVideoDuration", videoElement);
+        StateHasChanged();
+    }
+
+    private async Task OnTimeUpdate()
+    {
+        currentTime = await JSRuntime.InvokeAsync<double>("getCurrentTime", videoElement);
+        StateHasChanged();
+    }
+
+    private void OnPlay()
+    {
+        isPlaying = true;
+        showCenterButton = false;
+        StateHasChanged();
+    }
+
+    private void OnPause()
+    {
+        isPlaying = false;
+        showCenterButton = true;
+        StateHasChanged();
+    }
+
+    private async Task OnEnded()
+    {
+        isPlaying = false;
+        showCenterButton = true;
+        
+        // Auto-play next episode if available
+        if (!string.IsNullOrEmpty(SeriesSlug) && episodes?.Count > 0)
+        {
+            var currentIndex = episodes.FindIndex(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug);
+            if (currentIndex >= 0 && currentIndex < episodes.Count - 1)
+            {
+                await NavigateToEpisode(episodes[currentIndex + 1]);
+            }
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task TogglePlayPause()
+    {
+        if (isPlaying)
+        {
+            await JSRuntime.InvokeVoidAsync("pauseVideo", videoElement);
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("playVideo", videoElement);
+        }
+    }
+
+    private async Task OnSeek(double time)
+    {
+        currentTime = time;
+        await JSRuntime.InvokeVoidAsync("setCurrentTime", videoElement, time);
+    }
+
+    private async Task Seek(double seconds)
+    {
+        var newTime = Math.Max(0, Math.Min(duration, currentTime + seconds));
+        await OnSeek(newTime);
+    }
+
+    private async Task OnVolumeChange(double newVolume)
+    {
+        volume = newVolume;
+        await JSRuntime.InvokeVoidAsync("setVolume", videoElement, volume);
+        isMuted = volume == 0;
+    }
+
+    private async Task ToggleMute()
+    {
+        if (isMuted)
+        {
+            await OnVolumeChange(0.5);
+        }
+        else
+        {
+            await OnVolumeChange(0);
+        }
+    }
+
+    private async Task OnSpeedChange(double speed)
+    {
+        playbackSpeed = speed;
+        await JSRuntime.InvokeVoidAsync("setPlaybackRate", videoElement, speed);
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        await JSRuntime.InvokeVoidAsync("toggleFullscreen", videoElement);
+    }
+
+    private void ToggleControls()
+    {
+        showControls = !showControls;
+        if (showControls)
+        {
+            StartControlsTimer();
+        }
+        StateHasChanged();
+    }
+
+    private void ToggleSettings()
+    {
+        showEpisodeNav = !showEpisodeNav;
+        StateHasChanged();
+    }
+
+    private void GoBack()
+    {
+        if (!string.IsNullOrEmpty(MovieSlug))
+        {
+            Navigation.NavigateTo($"/media/movie/{MovieSlug}");
+        }
+        else if (!string.IsNullOrEmpty(SeriesSlug))
+        {
+            Navigation.NavigateTo($"/media/series/{SeriesSlug}");
+        }
+        
+    }
+
+    private async Task NavigateToEpisode(Episode episode)
+    {
+        var episodeSlug = Slugify.SlugifyUrl(episode.Title);
+        Navigation.NavigateTo($"/media/series/{SeriesSlug}/play/{episodeSlug}");
+        showEpisodeNav = false;
+    }
+
+    private void StartControlsTimer()
+    {
+        controlsTimer?.Dispose();
+        controlsTimer = new Timer(_ =>
+        {
+            if (isPlaying)
+            {
+                InvokeAsync(() =>
+                {
+                    showControls = false;
+                    StateHasChanged();
+                });
+            }
+        }, null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+    }
+
+    private string GetControlsStyle()
+    {
+        return showControls ? "opacity: 1; transition: opacity 0.3s;" : "opacity: 0; transition: opacity 0.3s; pointer-events: none;";
+    }
+
+    private string GetEpisodeNavStyle()
+    {
+        return $"position: absolute; top: 20%; right: 16px; width: 300px; {(showEpisodeNav ? "opacity: 1; transform: translateX(0);" : "opacity: 0; transform: translateX(100%); pointer-events: none;")} transition: all 0.3s;";
+    }
+
+    private string FormatTime(double seconds)
+    {
+        var time = TimeSpan.FromSeconds(seconds);
+        return time.TotalHours >= 1 
+            ? $"{(int)time.TotalHours}:{time.Minutes:D2}:{time.Seconds:D2}"
+            : $"{time.Minutes:D2}:{time.Seconds:D2}";
+    }
+
+    public void Dispose()
+    {
+        controlsTimer?.Dispose();
+    }
+}

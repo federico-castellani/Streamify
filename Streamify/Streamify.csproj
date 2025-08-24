@@ -22,4 +22,8 @@
       <Folder Include="wwwroot\lib\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Include="wwwroot\Media\Series\rick-and-morty\rick_and_morty_S1_1.mp4" />
+    </ItemGroup>
+
 </Project>

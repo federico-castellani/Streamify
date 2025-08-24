@@ -4,6 +4,7 @@
 @using Streamify.Data
 @using Streamify.TMDB
 @using Streamify.Utility
+@inject NavigationManager Nav
 
 @inject StreamifyDbContext Db
 @inject ITmdbClient Tmdb
@@ -28,11 +29,17 @@
     private bool IsLoading = true;
     private string? ErrorMessage;
 
+    // Cache the image URLs to avoid multiple generations
+    private string? _cachedBackdropUrl;
+    private string? _cachedPosterUrl;
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
             await LoadMediaData();
+            // Cache the image URLs after loading data
+            CacheImageUrls();
         }
         catch (Exception ex)
         {
@@ -42,6 +49,28 @@
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    private void CacheImageUrls()
+    {
+        if (Movie != null)
+        {
+            _cachedBackdropUrl = GetBackdropImageUrl(MovieDetail?.BackdropPath, MovieDetail?.PosterPath);
+            _cachedPosterUrl = GetPosterImageUrl(MovieDetail?.PosterPath);
+            if (!string.IsNullOrEmpty(_cachedBackdropUrl))
+            {
+                Logger.LogInformation("Cached backdrop URL for movie: {Title}", Movie.Title);
+            }
+        }
+        else if (Series != null)
+        {
+            _cachedBackdropUrl = GetBackdropImageUrl(SeriesDetail?.BackdropPath, SeriesDetail?.PosterPath);
+            _cachedPosterUrl = GetPosterImageUrl(SeriesDetail?.PosterPath);
+            if (!string.IsNullOrEmpty(_cachedBackdropUrl))
+            {
+                Logger.LogInformation("Cached backdrop URL for series: {Title}", Series.Title);
+            }
         }
     }
 
@@ -59,7 +88,9 @@
 
     private async Task LoadMovieData()
     {
-        Movie = (await Db.Movies.ToListAsync())
+        Movie = (await Db.Movies
+                .Include(m => m.MediaFiles)
+                .ToListAsync())
             .AsEnumerable()
             .FirstOrDefault(m => Slugify.SlugifyUrl(m.Title) == MovieSlug);
         
@@ -81,8 +112,7 @@
             MovieDetail = await Tmdb.GetMovieAsync(Movie!.TmdbId);
             if (MovieDetail != null)
             {
-                Logger.LogInformation("Movie detail loaded - PosterPath: {PosterPath}, BackdropPath: {BackdropPath}", 
-                    MovieDetail.PosterPath, MovieDetail.BackdropPath);
+                Logger.LogInformation("Movie detail loaded for: {Title}", Movie!.Title);
             }
         }
         catch (Exception ex)
@@ -99,8 +129,7 @@
             MovieSearchMeta = searchResults.FirstOrDefault(r => r.Id == Movie.TmdbId);
             if (MovieSearchMeta != null)
             {
-                Logger.LogInformation("Movie search meta loaded - Overview available: {HasOverview}", 
-                    !string.IsNullOrEmpty(MovieSearchMeta.Overview));
+                Logger.LogInformation("Movie search meta loaded for: {Title}", Movie!.Title);
             }
         }
         catch (Exception ex)
@@ -149,8 +178,7 @@
             SeriesDetail = await Tmdb.GetSeriesAsync(Series!.TmdbId);
             if (SeriesDetail != null)
             {
-                Logger.LogInformation("Series detail loaded - PosterPath: {PosterPath}, BackdropPath: {BackdropPath}", 
-                    SeriesDetail.PosterPath, SeriesDetail.BackdropPath);
+                Logger.LogInformation("Series detail loaded for: {Title}", Series!.Title);
             }
         }
         catch (Exception ex)
@@ -167,8 +195,7 @@
             SeriesSearchMeta = searchResults.FirstOrDefault(r => r.Id == Series.TmdbId);
             if (SeriesSearchMeta != null)
             {
-                Logger.LogInformation("Series search meta loaded - Overview available: {HasOverview}", 
-                    !string.IsNullOrEmpty(SeriesSearchMeta.Overview));
+                Logger.LogInformation("Series search meta loaded for: {Title}", Series!.Title);
             }
         }
         catch (Exception ex)
@@ -180,14 +207,26 @@
     private void PlayMovie()
     {
         Logger.LogInformation("Playing movie: {Title} (ID: {MovieId})", Movie?.Title, Movie?.MovieId);
-        // TODO: Implement play logic for Movie
+        var mediaFile = Movie?.MediaFiles?.FirstOrDefault();
+        if (mediaFile != null)
+        {
+            Nav.NavigateTo($"/media/movie/{MovieSlug}/play");
+        }
+        else
+        {
+            Logger.LogWarning("No media file found for movie: {Title}", Movie?.Title);
+        }
     }
 
     private void PlayEpisode(int episodeId)
     {
         var episode = Episodes?.FirstOrDefault(e => e.EpisodeId == episodeId);
         Logger.LogInformation("Playing episode: {EpisodeTitle} (ID: {EpisodeId})", episode?.Title, episodeId);
-        // TODO: Implement play logic for Episode
+        if (episode != null)
+        { 
+            Nav.NavigateTo($"/media/series/{SeriesSlug}/play/{Slugify.SlugifyUrl(episode.Title)}");
+            Logger.LogWarning("No media file found for series: {Title}", Series?.Title);
+        }
     }
 
     private string GetPageTitle()
@@ -199,16 +238,12 @@
     {
         if (!string.IsNullOrEmpty(backdropPath))
         {
-            var url = Tmdb.GetBackdropUrl(backdropPath, TmdbImageSize.Original);
-            Logger.LogInformation("Generated backdrop URL: {Url}", url);
-            return url;
+            return Tmdb.GetBackdropUrl(backdropPath, TmdbImageSize.Original);
         }
         
         if (!string.IsNullOrEmpty(posterPath))
         {
-            var url = Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W780);
-            Logger.LogInformation("Generated poster URL as backdrop: {Url}", url);
-            return url;
+            return Tmdb.GetPosterUrl(posterPath, TmdbImageSize.W780);
         }
         
         return null;
@@ -218,9 +253,7 @@
     {
         if (!string.IsNullOrEmpty(posterPath))
         {
-            var url = Tmdb.GetPosterUrl(posterPath, TmdbImageSize.Original);
-            Logger.LogInformation("Generated poster URL: {Url}", url);
-            return url;
+            return Tmdb.GetPosterUrl(posterPath, TmdbImageSize.Original);
         }
         
         return null;
@@ -278,41 +311,34 @@ else if (Movie != null)
 {
     <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
         @* Hero Section with Backdrop *@
-        @{
-            var backdropUrl = GetBackdropImageUrl(MovieDetail?.BackdropPath, MovieDetail?.PosterPath);
-        }
-        
-        <MudPaper Elevation="0" Class="position-relative" Style="min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%);">
-            @if (!string.IsNullOrEmpty(backdropUrl))
+        <MudPaper Elevation="0" Style="position: relative; min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%); overflow: hidden;">
+            @if (!string.IsNullOrEmpty(_cachedBackdropUrl))
             {
                 <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
-                    <img src="@backdropUrl" 
+                    <img src="@_cachedBackdropUrl" 
                          alt="@Movie.Title backdrop"
-                         style="width: 100%; height: 100%; object-fit: cover;"
-                         onerror="console.error('Backdrop image failed to load:', '@backdropUrl'); this.style.display='none';" />
-                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%);"></div>
+                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"
+                         onerror="console.error('Backdrop image failed to load:', '@_cachedBackdropUrl'); this.style.display='none';" />
+                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%); z-index: 2;"></div>
                 </div>
             }
             
-            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 2; padding-top: 4rem; padding-bottom: 3rem;">
-                <MudGrid AlignItems="End">
+            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 10; padding-top: 4rem; padding-bottom: 3rem; min-height: 60vh; display: flex; align-items: end;">
+                <MudGrid AlignItems="End" Style="width: 100%;">
                     @* Poster Column *@
                     <MudItem xs="12" md="3">
-                        @{
-                            var posterUrl = GetPosterImageUrl(MovieDetail?.PosterPath);
-                        }
-                        @if (!string.IsNullOrEmpty(posterUrl))
+                        @if (!string.IsNullOrEmpty(_cachedPosterUrl))
                         {
-                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px;">
-                                <img src="@posterUrl" 
+                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px; position: relative; z-index: 11;">
+                                <img src="@_cachedPosterUrl" 
                                      alt="@Movie.Title poster"
                                      style="width: 100%; height: auto; display: block;"
-                                     onerror="console.error('Poster image failed to load:', '@posterUrl'); this.parentElement.style.display='none';" />
+                                     onerror="console.error('Poster image failed to load:', '@_cachedPosterUrl'); this.parentElement.style.display='none';" />
                             </MudPaper>
                         }
                         else
                         {
-                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; background-color: #f5f5f5; max-width: 250px;">
+                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; background-color: rgba(245, 245, 245, 0.9); max-width: 250px; backdrop-filter: blur(10px); position: relative; z-index: 11;">
                                 <MudStack AlignItems="AlignItems.Center" Spacing="2">
                                     <MudIcon Icon="@Icons.Material.Filled.Movie" Size="Size.Large" Color="Color.Default" />
                                     <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
@@ -323,9 +349,9 @@ else if (Movie != null)
 
                     @* Content Column *@
                     <MudItem xs="12" md="9">
-                        <MudStack Spacing="4" Class="pa-4" Style="color: white;">
+                        <MudStack Spacing="4" Class="pa-4" Style="color: white; position: relative; z-index: 11;">
                             <div>
-                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7);">
+                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); margin-bottom: 0.5rem;">
                                     @Movie.Title
                                 </MudText>
                                 
@@ -374,14 +400,14 @@ else if (Movie != null)
                                            Size="Size.Large"
                                            StartIcon="@Icons.Material.Filled.PlayArrow"
                                            OnClick="@PlayMovie"
-                                           Style="backdrop-filter: blur(10px);">
+                                           Style="backdrop-filter: blur(10px); position: relative; z-index: 12;">
                                     Play Movie
                                 </MudButton>
                                 
                                 <MudButton Variant="Variant.Outlined" 
                                            Color="Color.Surface"
                                            StartIcon="@Icons.Material.Filled.Add"
-                                           Style="backdrop-filter: blur(10px); border-color: rgba(255,255,255,0.5); color: white;">
+                                           Style="backdrop-filter: blur(10px); border-color: rgba(255,255,255,0.5); color: white; position: relative; z-index: 12;">
                                     Watchlist
                                 </MudButton>
                             </MudStack>
@@ -500,41 +526,34 @@ else if (Series != null)
 {
     <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-0">
         @* Hero Section with Backdrop *@
-        @{
-            var backdropUrl = GetBackdropImageUrl(SeriesDetail?.BackdropPath, SeriesDetail?.PosterPath);
-        }
-        
-        <MudPaper Elevation="0" Class="position-relative" Style="min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%);">
-            @if (!string.IsNullOrEmpty(backdropUrl))
+        <MudPaper Elevation="0" Style="position: relative; min-height: 60vh; background: linear-gradient(135deg, #1976d2 0%, #9c27b0 100%); overflow: hidden;">
+            @if (!string.IsNullOrEmpty(_cachedBackdropUrl))
             {
                 <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
-                    <img src="@backdropUrl" 
+                    <img src="@_cachedBackdropUrl"
                          alt="@Series.Title backdrop"
-                         style="width: 100%; height: 100%; object-fit: cover;"
-                         onerror="console.error('Backdrop image failed to load:', '@backdropUrl'); this.style.display='none';" />
-                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%);"></div>
+                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"
+                         onerror="console.error('Backdrop image failed to load:', '@_cachedBackdropUrl'); this.style.display='none';" />
+                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%); z-index: 2;"></div>
                 </div>
             }
             
-            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 2; padding-top: 4rem; padding-bottom: 3rem;">
-                <MudGrid AlignItems="End">
+            <MudContainer MaxWidth="MaxWidth.Large" Style="position: relative; z-index: 10; padding-top: 4rem; padding-bottom: 3rem; min-height: 60vh; display: flex; align-items: end;">
+                <MudGrid AlignItems="End" Style="width: 100%;">
                     @* Poster Column *@
                     <MudItem xs="12" md="3">
-                        @{
-                            var posterUrl = GetPosterImageUrl(SeriesDetail?.PosterPath);
-                        }
-                        @if (!string.IsNullOrEmpty(posterUrl))
+                        @if (!string.IsNullOrEmpty(_cachedPosterUrl))
                         {
-                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px;">
-                                <img src="@posterUrl" 
+                            <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px; position: relative; z-index: 11;">
+                                <img src="@_cachedPosterUrl" 
                                      alt="@Series.Title poster"
                                      style="width: 100%; height: auto; display: block;"
-                                     onerror="console.error('Poster image failed to load:', '@posterUrl'); this.parentElement.style.display='none';" />
+                                     onerror="console.error('Poster image failed to load:', '@_cachedPosterUrl'); this.parentElement.style.display='none';" />
                             </MudPaper>
                         }
                         else
                         {
-                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8);">
+                            <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8); max-width: 250px; position: relative; z-index: 11;">
                                 <MudStack AlignItems="AlignItems.Center" Spacing="2">
                                     <MudIcon Icon="@Icons.Material.Filled.Tv" Size="Size.Large" Color="Color.Default" />
                                     <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
@@ -545,9 +564,9 @@ else if (Series != null)
 
                     @* Content Column *@
                     <MudItem xs="12" md="9">
-                        <MudStack Spacing="4" Class="pa-4" Style="color: white;">
+                        <MudStack Spacing="4" Class="pa-4" Style="color: white; position: relative; z-index: 11;">
                             <div>
-                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7);">
+                                <MudText Typo="Typo.h2" Style="color: white; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); margin-bottom: 0.5rem;">
                                     @Series.Title
                                 </MudText>
                                 
@@ -618,7 +637,7 @@ else if (Series != null)
                         </CardHeaderContent>
                     </MudCardHeader>
                     <MudCardContent Class="pa-0">
-                        <MudTable Items="Episodes" 
+                        <MudTable Items="FilteredEpisodes" 
                                   Hover="true" 
                                   Dense="true"
                                   FixedHeader="true"
@@ -628,7 +647,7 @@ else if (Series != null)
                                 <MudTh>Season</MudTh>
                                 <MudTh>Episode</MudTh>
                                 <MudTh>Title</MudTh>
-                                @if (Episodes.Any(e => e.DurationMinutes.HasValue))
+                                @if (FilteredEpisodes?.Any(e => e.DurationMinutes.HasValue) == true)
                                 {
                                     <MudTh>Duration</MudTh>
                                 }
@@ -637,18 +656,18 @@ else if (Series != null)
                             <RowTemplate>
                                 <MudTd DataLabel="Season">
                                     <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
-                                        S@context.SeasonNumber.ToString("D2")
+                                        @( $"S{context.SeasonNumber:D2}")
                                     </MudChip>
                                 </MudTd>
                                 <MudTd DataLabel="Episode">
                                     <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">
-                                        E@context.EpisodeNumber.ToString("D2")
+                                        @( $"S{context.EpisodeNumber:D2}")
                                     </MudChip>
                                 </MudTd>
                                 <MudTd DataLabel="Title">
                                     <MudText Typo="Typo.body2">@context.Title</MudText>
                                 </MudTd>
-                                @if (Episodes.Any(e => e.DurationMinutes.HasValue))
+                                @if (Episodes?.Any(e => e.DurationMinutes.HasValue) == true)
                                 {
                                     <MudTd DataLabel="Duration">
                                         <MudText Typo="Typo.body2" Color="Color.Default">
