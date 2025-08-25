@@ -8,6 +8,9 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ITmdbClient Tmdb
 @inject NavigationManager Nav
+@attribute [Authorize]
+
+<PageTitle>Streamify</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
     <MudTextField @bind-Value="_searchText"

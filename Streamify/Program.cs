@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Streamify;
@@ -21,17 +22,12 @@ builder.Services.AddDbContext<StreamifyDbContext>(
 builder.Services.AddAuthentication("Cookies")
     .AddCookie("Cookies", options =>
     {
+        options.Cookie.Name = "auth_token";
         options.LoginPath = "/login";
         options.LogoutPath = "/logout";
-        options.AccessDeniedPath = "/access-denied";
-        options.Cookie.Name = "auth_token";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
     });
 
-builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
-builder.Services.AddScoped<CustomAuthenticationStateProvider>();
 builder.Services.AddScoped<ILoginService, LoginService>();
 
 builder.Services.AddScoped<IThemeService, ThemeService>();
@@ -46,6 +42,7 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddControllers();
 
 var app = builder.Build();
 
@@ -67,6 +64,7 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapAuthEndpoints();
+app.MapControllers();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

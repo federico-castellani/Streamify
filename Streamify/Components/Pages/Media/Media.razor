@@ -10,6 +10,8 @@
 @inject ITmdbClient Tmdb
 @inject ILogger<Media> Logger
 
+@attribute [Authorize]
+
 <PageTitle>@GetPageTitle()</PageTitle>
 
 @code {

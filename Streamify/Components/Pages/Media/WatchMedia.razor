@@ -10,6 +10,10 @@
 @implements IDisposable
 @layout PlayerLayout
 
+@attribute [Authorize]
+
+<PageTitle>@mediaTitle</PageTitle>
+
 <MudContainer MaxWidth="MaxWidth.False" Class="pa-0">
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -237,8 +241,8 @@
     private async Task LoadMovie()
     {
         var movie = (await Db.Movies
-            .Include(m => m.MediaFiles)
-            .ToListAsync())
+                .Include(m => m.MediaFiles)
+                .ToListAsync())
             .FirstOrDefault(m => Slugify.SlugifyUrl(m.Title) == MovieSlug);
 
         if (movie != null)
@@ -246,7 +250,7 @@
             var mediaFile = movie.MediaFiles.FirstOrDefault();
             if (mediaFile != null)
             {
-                videoPath = $"/Media/Movies/{MovieSlug}/" + mediaFile.FilePath.TrimStart('/');
+                videoPath = $"/api/media/stream/movie/{MovieSlug}/{Path.GetFileName(mediaFile.FilePath)}";
                 mediaTitle = movie.Title;
                 mediaSubtitle = $"{movie.ReleaseDate?.Year} • Movie";
             }
@@ -264,9 +268,9 @@
     private async Task LoadEpisode()
     {
         var series = (await Db.Series
-            .Include(s => s.Episodes.OrderBy(e => e.EpisodeNumber))
-            .ThenInclude(e => e.MediaFile)
-            .ToListAsync())
+                .Include(s => s.Episodes.OrderBy(e => e.EpisodeNumber))
+                .ThenInclude(e => e.MediaFile)
+                .ToListAsync())
             .FirstOrDefault(s => Slugify.SlugifyUrl(s.Title) == SeriesSlug);
 
         if (series != null)
@@ -276,7 +280,7 @@
 
             if (episode?.MediaFile != null)
             {
-                videoPath = $"/Media/Series/{SeriesSlug}/" + episode.MediaFile.FilePath.TrimStart('/');
+                videoPath = $"/api/media/stream/series/{SeriesSlug}/{Path.GetFileName(episode.MediaFile.FilePath)}";
                 mediaTitle = series.Title;
                 mediaSubtitle = $"S{episode.SeasonNumber}E{episode.EpisodeNumber} • {episode.Title}";
             }
@@ -290,6 +294,7 @@
             errorMessage = "Series not found.";
         }
     }
+
 
     private string GetMediaTitle() => mediaTitle ?? "Unknown Media";
     private string GetMediaSubtitle() => mediaSubtitle ?? "";

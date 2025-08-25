@@ -9,6 +9,10 @@
 @inject ISnackbar Snackbar
 @inject ILogger<Register> Logger
 @layout UnauthenticatedLayout
+@inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JS
+
+<PageTitle>Register</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">
@@ -69,6 +73,14 @@
 
             </MudStack>
             
+            
+            <MudCheckBox T="bool"
+                         @bind-Value="_model.RememberMe"
+                         Color="Color.Primary"
+                         Class="mb-4">
+                Ricordami
+                </MudCheckBox>
+            
             <MudButton ButtonType="ButtonType.Submit"
                        Variant="Variant.Filled"
                        Color="Color.Primary"
@@ -91,6 +103,21 @@
         </MudText>
     </MudPaper>
 </MudContainer>
+
+<form id="serverLoginForm" method="post" action="/login-action" style="display:none;">
+    <input type="hidden" name="email" id="hiddenEmail" />
+    <input type="hidden" name="password" id="hiddenPassword" />
+    <input type="hidden" name="rememberMe" id="hiddenRemember" />
+</form>
+
+<script>
+    window.submitLoginForm = (data) => {
+        document.getElementById('hiddenEmail').value = data.email;
+        document.getElementById('hiddenPassword').value = data.password;
+        document.getElementById('hiddenRemember').value = data.rememberMe;
+        document.getElementById('serverLoginForm').submit();
+    };
+</script>
 
 @code {
     private RegisterModel _model = new();
@@ -160,10 +187,15 @@
             Db.Users.Add(user);
             await Db.SaveChangesAsync();
             await tx.CommitAsync();
-
-            Snackbar.Add("Registrazione avvenuta con successo. Effettua il login.", Severity.Success);
+            
+            Snackbar.Add("Registrazione avvenuta con successo. Accesso effettuato.", Severity.Success);
+            await JS.InvokeVoidAsync("submitLoginForm", new
+            {
+                email = user.Email,
+                password = _model.Password,
+                rememberMe = _model.RememberMe
+            });
             ResetForm();
-            Nav.NavigateTo("/login");
         }
         catch (Exception ex)
         {
@@ -187,5 +219,6 @@
         [Required, Compare(nameof(Password), ErrorMessage = "Le password non corrispondono.")]
         public string ConfirmPassword { get; set; } = "";
         public bool DarkMode { get; set; }
+        public bool RememberMe { get; set; } = false;
     }
 }

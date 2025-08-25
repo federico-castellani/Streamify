@@ -36,7 +36,7 @@
 
     <MudDrawer @bind-Open="_drawerOpen" Variant="DrawerVariant.Responsive" Breakpoint="Breakpoint.Md" Elevation="1" ClipMode="DrawerClipMode.Never">
         <MudDrawerHeader>
-            <MudText Typo="Typo.h6" Class="ml-2">Navigation</MudText>
+            <MudText Typo="Typo.h6" Class="ml-2">Menu</MudText>
         </MudDrawerHeader>
 
         <NavMenu />
@@ -66,12 +66,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthProvider.GetAuthenticationStateAsync();
-        if (auth.User.Identity?.IsAuthenticated == false)
-        {
-            Nav.NavigateTo("/login");
-        }
-        
         AuthProvider.AuthenticationStateChanged += OnAuthStateChanged;
         ThemeService.ThemeChanged += OnExternalThemeChanged;
         await SyncAuthAndThemeAsync();

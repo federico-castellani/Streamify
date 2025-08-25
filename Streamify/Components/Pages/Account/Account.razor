@@ -1,5 +1,4 @@
 @page "/account"
-@attribute [Authorize]
 @using System.Security.Claims
 @using System.ComponentModel.DataAnnotations
 @using Streamify.Services
@@ -12,6 +11,8 @@
 @inject ILoginService LoginService
 @inject IWebHostEnvironment Env
 @inject IHttpContextAccessor HttpCtx
+
+@attribute [Authorize]
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">

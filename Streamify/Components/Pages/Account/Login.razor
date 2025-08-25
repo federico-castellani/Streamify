@@ -5,6 +5,9 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @layout UnauthenticatedLayout
+@inject IHttpContextAccessor HttpContextAccessor
+
+<PageTitle>Login</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">
@@ -72,6 +75,8 @@
     {
         var uri = new Uri(Navigation.Uri);
         var q = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        
+        
         
         if(q.TryGetValue("login", out var v1) && v1 == "success")
         {

@@ -4,11 +4,11 @@
 @using Streamify.Data
 @using Streamify.TMDB
 @using MudBlazor
-@attribute [Authorize(Roles="Admin")]
-
 @inject ITmdbClient Tmdb
 @inject StreamifyDbContext Db
 @inject ISnackbar Snackbar
+
+@attribute [Authorize(Roles = "Admin")]
 
 <PageTitle>Aggiungi Media</PageTitle>
 

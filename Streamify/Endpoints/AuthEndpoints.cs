@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Streamify.Services;
 
 namespace Streamify.Endpoints;
@@ -31,8 +33,20 @@ public static class AuthEndpoints
                 return;
             }
 
-            var token = loginService.GenerateToken(result.UserId, result.Email, result.Role);
-            loginService.SetAuthCookie(context, token, env, rememberMe);
+            // Create claims and sign in
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, result.UserId.ToString()),
+                new Claim(ClaimTypes.Email, result.Email),
+                new Claim(ClaimTypes.Role, result.Role)
+            };
+            var identity = new ClaimsIdentity(claims, "Cookies");
+            var principal = new ClaimsPrincipal(identity);
+
+            await context.SignInAsync("Cookies", principal, new AuthenticationProperties
+            {
+                IsPersistent = rememberMe
+            });
 
             logger.LogInformation("Login (remember={Remember}) for {Email} role={Role}", rememberMe, result.Email, result.Role);
             context.Response.Redirect("/?login=success");
