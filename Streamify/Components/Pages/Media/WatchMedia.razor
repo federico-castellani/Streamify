@@ -3,10 +3,12 @@
 @inject StreamifyDbContext Db
 @inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
+@using System.Security.Claims
 @using Microsoft.EntityFrameworkCore
 @using Streamify.Components.Layout
 @using Streamify.Data
 @using Streamify.Utility
+@inject AuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 @layout PlayerLayout
 
@@ -23,17 +25,22 @@
     }
     else if (!string.IsNullOrEmpty(videoPath))
     {
-        <div class="video-container" style="position: relative; background: black; min-height: 100vh;">
+        <div class="video-container" 
+             style="position: relative; background: black; height: 100vh; overflow: hidden; cursor: @(showControls ? "default" : "none");"
+             @onmouseenter="OnMouseEnter"
+             @onmouseleave="OnMouseLeave"
+             @onmousemove="OnMouseMove">
             <!-- Video Element -->
             <video @ref="videoElement" 
+                   @key="videoPath"
                    id="mediaPlayer"
+                   autoplay
                    style="width: 100%; height: 100vh; object-fit: contain;"
                    @onloadedmetadata="OnVideoLoaded"
                    @ontimeupdate="OnTimeUpdate"
                    @onplay="OnPlay"
                    @onpause="OnPause"
-                   @onended="OnEnded"
-                   @onclick="ToggleControls">
+                   @onended="OnEnded">
                 <source src="@videoPath" type="video/mp4" />
                 Your browser does not support the video tag.
             </video>
@@ -42,15 +49,14 @@
             <div class="controls-overlay" style="@GetControlsStyle()">
                 <!-- Top Bar -->
                 <div class="top-controls" style="position: absolute; top: 0; left: 0; right: 0; background: linear-gradient(rgba(0,0,0,0.7), transparent); padding: 16px; z-index: 1000;">
-                    <MudGrid AlignItems="Center">
-                        <MudItem xs="1">
+                    <MudGrid>
+                        <MudItem>
                             <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" 
                                          Color="Color.Primary" 
                                          Size="Size.Large"
-                                         OnClick="GoBack"
-                                         Style="background: rgba(255,255,255,0.2); color: white;" />
+                                         OnClick="GoBack"/>
                         </MudItem>
-                        <MudItem xs="10">
+                        <MudItem>
                             <MudText Typo="Typo.h6" Style="color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
                                 @GetMediaTitle()
                             </MudText>
@@ -61,127 +67,118 @@
                                 </MudText>
                             }
                         </MudItem>
-                        <MudItem xs="1">
-                            <MudIconButton Icon="@Icons.Material.Filled.Settings" 
-                                         Color="Color.Primary" 
-                                         Size="Size.Large"
-                                         OnClick="ToggleSettings"
-                                         Style="background: rgba(255,255,255,0.1); color: white;" />
-                        </MudItem>
                     </MudGrid>
                 </div>
 
-                <!-- Center Play/Pause Button -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001;">
-                    <MudFab Color="Color.Primary" 
-                            Size="Size.Large"
-                            Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
-                            OnClick="TogglePlayPause"
-                            Style="@(showCenterButton ? "opacity: 1; transition: opacity 0.3s;" : "opacity: 0; transition: opacity 0.3s; pointer-events: none;")" />
-                </div>
+                <!-- Center Play/Pause Button (only when controls are visible) -->
+                @if (showControls)
+                {
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001;">
+                        @if (isPlaying)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Pause"
+                                           Color="Color.Primary"
+                                           Size="Size.Large"
+                                           Style="background-color: rgba(0,0,0,0.7);"
+                                           OnClick="TogglePlayPause"/>
+                        }
+                        else
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow"
+                                           Color="Color.Primary"
+                                           Size="Size.Large"
+                                           Style="background-color: rgba(0,0,0,0.7);"
+                                           OnClick="TogglePlayPause"/>
+                        }
+                        
+                    </div>
+                }
 
                 <!-- Bottom Controls -->
                 <div class="bottom-controls" style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.7)); padding: 16px; z-index: 1000;">
                     <!-- Progress Bar -->
-                    <MudSlider T="double" 
-                               Min="0" 
-                               Max="@duration" 
+                    <MudSlider T="double"
+                               Min="0"
+                               Max="@duration"
                                Step="1"
-                               Value="@currentTime" 
+                               Value="@currentTime"
                                ValueChanged="OnSeek"
                                Color="Color.Primary"
                                Class="mb-4" />
-                    
-                    <MudGrid AlignItems="Center">
-                        <MudItem xs="1">
-                            <MudIconButton Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)" 
-                                         Color="Color.Primary"
-                                         Size="Size.Large"
-                                         OnClick="TogglePlayPause"
-                                         Style="background: rgba(255,255,255,0.2); color: white;" />
-                        </MudItem>
-                        <MudItem xs="1">
-                            <MudIconButton Icon="@Icons.Material.Filled.Replay10" 
-                                         Color="Color.Primary"
-                                         Size="Size.Large"
-                                         OnClick="() => Seek(-10)"
-                                         Style="background: rgba(255,255,255,0.1); color: white;" />
-                        </MudItem>
-                        <MudItem xs="1">
-                            <MudIconButton Icon="@Icons.Material.Filled.Forward10" 
-                                         Color="Color.Primary"
-                                         Size="Size.Large"
-                                         OnClick="() => Seek(10)"
-                                         Style="background: rgba(255,255,255,0.1); color: white;" />
-                        </MudItem>
-                        <MudItem xs="2">
-                            <MudText Style="color: white; font-size: 14px;">
-                                @FormatTime(currentTime) / @FormatTime(duration)
-                            </MudText>
-                        </MudItem>
-                        <MudItem xs="2">
-                            <MudGrid AlignItems="Center">
-                                <MudItem xs="4">
-                                    <MudIconButton Icon="@(isMuted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)" 
-                                                 Color="Color.Primary"
-                                                 Size="Size.Large"
-                                                 OnClick="ToggleMute"
-                                                 Style="background: rgba(255,255,255,0.1); color: white;" />
+
+                    <MudGrid Justify="Justify.SpaceBetween">
+                        <!-- Left Controls -->
+                        <MudItem>
+                            <MudGrid Class="d-flex align-center flex-grow-1">
+                                <MudItem>
+                                    <MudIconButton Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Large"
+                                                   OnClick="TogglePlayPause"/>
                                 </MudItem>
-                                <MudItem xs="8">
-                                    <MudSlider T="double" 
-                                               Min="0" 
-                                               Max="1" 
-                                               Step="0.1"
-                                               Value="@volume" 
-                                               ValueChanged="OnVolumeChange"
-                                               Color="Color.Primary" />
+                                <MudItem>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Replay10"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Large"
+                                                   OnClick="() => Seek(-10)"/>
+                                </MudItem>
+                                <MudItem>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Forward10"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Large"
+                                                   OnClick="() => Seek(10)"/>
+                                </MudItem>
+                                <MudItem>
+                                    <MudText Typo="Typo.body1" Style="color: white;">
+                                        @FormatTime(currentTime) / @FormatTime(duration)
+                                    </MudText>
                                 </MudItem>
                             </MudGrid>
                         </MudItem>
-                        <MudItem xs="2">
-                            <MudSelect T="double" Value="@playbackSpeed" ValueChanged="OnSpeedChange" 
-                                     Style="color: white; min-width: 80px; background: rgba(255,255,255,0.1); border-radius: 4px;" 
-                                     Dense="true">
-                                <MudSelectItem Value="0.5">0.5x</MudSelectItem>
-                                <MudSelectItem Value="0.75">0.75x</MudSelectItem>
-                                <MudSelectItem Value="1.0">1x</MudSelectItem>
-                                <MudSelectItem Value="1.25">1.25x</MudSelectItem>
-                                <MudSelectItem Value="1.5">1.5x</MudSelectItem>
-                                <MudSelectItem Value="2.0">2x</MudSelectItem>
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="2">
-                            <MudIconButton Icon="@Icons.Material.Filled.Fullscreen" 
-                                         Color="Color.Primary" 
-                                         Size="Size.Large"
-                                         OnClick="ToggleFullscreen"
-                                         Style="background: rgba(255,255,255,0.1); color: white;" />
+
+                        <!-- Right Controls -->
+                        <MudItem>
+                            <MudGrid Class="d-flex align-center flex-grow-1">
+                                <MudItem>
+                                    <MudIconButton Icon="@(isMuted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Large"
+                                                   OnClick="ToggleMute"/>
+                                </MudItem>
+                                <MudItem>
+                                    <MudSlider T="double"
+                                               Min="0"
+                                               Max="1"
+                                               Step="0.1"
+                                               Value="@volume"
+                                               ValueChanged="OnVolumeChange"
+                                               Color="Color.Primary" />
+                                </MudItem>
+                                @{
+                                    var currentIndex = episodes?.FindIndex(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug) ?? -1;
+                                    var hasNextEpisode = episodes != null && currentIndex >= 0 && currentIndex < episodes.Count - 1;
+                                    var nextEpisode = hasNextEpisode ? episodes[currentIndex + 1] : null;
+                                }
+                                @if (hasNextEpisode && nextEpisode != null)
+                                {
+                                    <MudItem>
+                                        <MudButton Color="Color.Primary"
+                                                   Variant="Variant.Filled"
+                                                   OnClick="() => NavigateToEpisode(nextEpisode)">
+                                            Prossimo Episodio
+                                        </MudButton>
+                                    </MudItem>
+                                }
+                                <MudItem>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Fullscreen"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Large"
+                                                   OnClick="ToggleFullscreen"/>
+                                </MudItem>
+                            </MudGrid>
                         </MudItem>
                     </MudGrid>
                 </div>
-
-                <!-- Episode Navigation (for series) -->
-                @if (!string.IsNullOrEmpty(SeriesSlug) && episodes?.Count > 0)
-                {
-                    <div class="episode-navigation" style="@GetEpisodeNavStyle()">
-                        <MudPaper Elevation="3" Class="pa-3" Style="background: rgba(0,0,0,0.9); color: white; max-height: 200px; overflow-y: auto;">
-                            <MudText Typo="Typo.h6" Class="mb-2">Episodes</MudText>
-                            @foreach (var ep in episodes)
-                            {
-                                var isCurrentEpisode = Slugify.SlugifyUrl(ep.Title) == EpisodeSlug;
-                                <MudButton Variant="@(isCurrentEpisode ? Variant.Filled : Variant.Text)"
-                                         Color="@(isCurrentEpisode ? Color.Primary : Color.Default)"
-                                         FullWidth="true"
-                                         Class="mb-1"
-                                         OnClick="() => NavigateToEpisode(ep)"
-                                         Style="justify-content: flex-start; text-align: left;">
-                                    <MudText>@ep.Title</MudText>
-                                </MudButton>
-                            }
-                        </MudPaper>
-                    </div>
-                }
             </div>
         </div>
     }
@@ -197,6 +194,9 @@
     private string? errorMessage;
     private string? mediaTitle;
     private string? mediaSubtitle;
+    private Timer? watchHistoryTimer;
+    private bool isDisposed = false;
+    private int resumeSeconds = 0;
     
     // Video state
     private bool isPlaying = false;
@@ -210,10 +210,12 @@
     private bool showControls = true;
     private bool showCenterButton = false;
     private bool showEpisodeNav = false;
+    private bool isMouseOver = false;
     private Timer? controlsTimer;
+    private Timer? cursorTimer;
     private List<Episode>? episodes;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
         if (!string.IsNullOrEmpty(MovieSlug))
         {
@@ -234,7 +236,6 @@
         if (firstRender && !string.IsNullOrEmpty(videoPath))
         {
             await JSRuntime.InvokeVoidAsync("initializeVideoPlayer", videoElement);
-            StartControlsTimer();
         }
     }
 
@@ -253,6 +254,15 @@
                 videoPath = $"/api/media/stream/movie/{MovieSlug}/{Path.GetFileName(mediaFile.FilePath)}";
                 mediaTitle = movie.Title;
                 mediaSubtitle = $"{movie.ReleaseDate?.Year} • Movie";
+
+                // Get last watched position
+                var userId = await GetUserIdFromClaimsAsync();
+                if (userId.HasValue)
+                {
+                    var history = await Db.WatchHistories
+                        .FirstOrDefaultAsync(h => h.UserId == userId && h.MovieId == movie.MovieId);
+                    resumeSeconds = history?.ProgressSeconds ?? 0;
+                }
             }
             else
             {
@@ -283,6 +293,15 @@
                 videoPath = $"/api/media/stream/series/{SeriesSlug}/{Path.GetFileName(episode.MediaFile.FilePath)}";
                 mediaTitle = series.Title;
                 mediaSubtitle = $"S{episode.SeasonNumber}E{episode.EpisodeNumber} • {episode.Title}";
+
+                // Get last watched position
+                var userId = await GetUserIdFromClaimsAsync();
+                if (userId.HasValue)
+                {
+                    var history = await Db.WatchHistories
+                        .FirstOrDefaultAsync(h => h.UserId == userId && h.EpisodeId == episode.EpisodeId);
+                    resumeSeconds = history?.ProgressSeconds ?? 0;
+                }
             }
             else
             {
@@ -295,6 +314,59 @@
         }
     }
 
+    // Mouse event handlers
+    private void OnMouseEnter()
+    {
+        isMouseOver = true;
+        showControls = true;
+        StopCursorTimer();
+        StateHasChanged();
+    }
+
+    private void OnMouseLeave()
+    {
+        isMouseOver = false;
+        if (isPlaying)
+        {
+            showControls = false;
+        }
+        StopCursorTimer();
+        StateHasChanged();
+    }
+
+    private void OnMouseMove()
+    {
+        if (!showControls && isMouseOver)
+        {
+            showControls = true;
+            StateHasChanged();
+        }
+        
+        StartCursorTimer();
+    }
+
+    private void StartCursorTimer()
+    {
+        StopCursorTimer();
+        cursorTimer = new Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                if(isDisposed) return;
+                if (isPlaying && isMouseOver)
+                {
+                    showControls = false;
+                    StateHasChanged();
+                }
+            });
+        }, null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+    }
+
+    private void StopCursorTimer()
+    {
+        cursorTimer?.Dispose();
+        cursorTimer = null;
+    }
 
     private string GetMediaTitle() => mediaTitle ?? "Unknown Media";
     private string GetMediaSubtitle() => mediaSubtitle ?? "";
@@ -302,6 +374,11 @@
     private async Task OnVideoLoaded()
     {
         duration = await JSRuntime.InvokeAsync<double>("getVideoDuration", videoElement);
+        if (resumeSeconds > 0 && resumeSeconds < duration)
+        {
+            await JSRuntime.InvokeVoidAsync("setCurrentTime", videoElement, resumeSeconds);
+            currentTime = resumeSeconds;
+        }
         StateHasChanged();
     }
 
@@ -315,6 +392,18 @@
     {
         isPlaying = true;
         showCenterButton = false;
+        StartWatchHistoryTimer();
+        
+        // Start cursor timer if mouse is over the video
+        if (isMouseOver)
+        {
+            StartCursorTimer();
+        }
+        else
+        {
+            showControls = false;
+        }
+        
         StateHasChanged();
     }
 
@@ -322,15 +411,21 @@
     {
         isPlaying = false;
         showCenterButton = true;
+        showControls = true;
+        StopCursorTimer();
         StateHasChanged();
+        StopWatchHistoryTimer();
     }
 
     private async Task OnEnded()
     {
         isPlaying = false;
         showCenterButton = true;
+        showControls = true;
+        StopCursorTimer();
+        await SaveWatchHistory();
         
-        // Auto-play next episode if available
+        // Autoplay next episode if available
         if (!string.IsNullOrEmpty(SeriesSlug) && episodes?.Count > 0)
         {
             var currentIndex = episodes.FindIndex(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug);
@@ -386,35 +481,15 @@
         }
     }
 
-    private async Task OnSpeedChange(double speed)
-    {
-        playbackSpeed = speed;
-        await JSRuntime.InvokeVoidAsync("setPlaybackRate", videoElement, speed);
-    }
-
     private async Task ToggleFullscreen()
     {
         await JSRuntime.InvokeVoidAsync("toggleFullscreen", videoElement);
     }
 
-    private void ToggleControls()
+    private async void GoBack()
     {
-        showControls = !showControls;
-        if (showControls)
-        {
-            StartControlsTimer();
-        }
-        StateHasChanged();
-    }
+        await SaveWatchHistory();
 
-    private void ToggleSettings()
-    {
-        showEpisodeNav = !showEpisodeNav;
-        StateHasChanged();
-    }
-
-    private void GoBack()
-    {
         if (!string.IsNullOrEmpty(MovieSlug))
         {
             Navigation.NavigateTo($"/media/movie/{MovieSlug}");
@@ -423,40 +498,19 @@
         {
             Navigation.NavigateTo($"/media/series/{SeriesSlug}");
         }
-        
     }
 
     private async Task NavigateToEpisode(Episode episode)
     {
         var episodeSlug = Slugify.SlugifyUrl(episode.Title);
         Navigation.NavigateTo($"/media/series/{SeriesSlug}/play/{episodeSlug}");
+        
         showEpisodeNav = false;
-    }
-
-    private void StartControlsTimer()
-    {
-        controlsTimer?.Dispose();
-        controlsTimer = new Timer(_ =>
-        {
-            if (isPlaying)
-            {
-                InvokeAsync(() =>
-                {
-                    showControls = false;
-                    StateHasChanged();
-                });
-            }
-        }, null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
     }
 
     private string GetControlsStyle()
     {
         return showControls ? "opacity: 1; transition: opacity 0.3s;" : "opacity: 0; transition: opacity 0.3s; pointer-events: none;";
-    }
-
-    private string GetEpisodeNavStyle()
-    {
-        return $"position: absolute; top: 20%; right: 16px; width: 300px; {(showEpisodeNav ? "opacity: 1; transform: translateX(0);" : "opacity: 0; transform: translateX(100%); pointer-events: none;")} transition: all 0.3s;";
     }
 
     private string FormatTime(double seconds)
@@ -469,6 +523,105 @@
 
     public void Dispose()
     {
+        isDisposed = true;
         controlsTimer?.Dispose();
+        cursorTimer?.Dispose();
+        watchHistoryTimer?.Dispose();
+    }
+    
+    private async Task StartWatchHistoryTimer()
+    {
+        StopWatchHistoryTimer();
+        watchHistoryTimer = new Timer(_ =>
+        {
+            InvokeAsync(async () =>
+            {
+                if (isDisposed) return;
+                await SaveWatchHistory();
+            });
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+    }
+
+    private void StopWatchHistoryTimer()
+    {
+        watchHistoryTimer?.Dispose();
+        watchHistoryTimer = null;
+    }
+
+    private async Task<int?> GetUserIdFromClaimsAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        // Try to get the "sub" or "UserId" claim
+        var userIdClaim = user.FindFirst("sub") ?? user.FindFirst("UserId") ?? user.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            return userId;
+        }
+        return null;
+    }
+    
+    private async Task SaveWatchHistory()
+    {
+        if (currentTime < 1) return; // Don't save if not started
+
+        var userId = await GetUserIdFromClaimsAsync();/* get current user id, e.g. from claims */;
+        WatchHistory? history = null;
+
+        if (!string.IsNullOrEmpty(MovieSlug))
+        {
+            var movies = await Db.Movies.ToListAsync();
+            var movie = movies.FirstOrDefault(m => Slugify.SlugifyUrl(m.Title) == MovieSlug);
+            if (movie == null) return;
+
+            history = await Db.WatchHistories
+                .FirstOrDefaultAsync(h => h.UserId == userId && h.MovieId == movie.MovieId);
+            if (history == null)
+            {
+                history = new WatchHistory
+                {
+                    UserId = userId.Value,
+                    MovieId = movie.MovieId,
+                    ProgressSeconds = (int)currentTime,
+                    LastWatched = DateTime.UtcNow,
+                    Completed = false
+                };
+                Db.WatchHistories.Add(history);
+            }
+            else
+            {
+                history.ProgressSeconds = (int)currentTime;
+                history.LastWatched = DateTime.UtcNow;
+            }
+        }
+        else if (!string.IsNullOrEmpty(SeriesSlug) && !string.IsNullOrEmpty(EpisodeSlug))
+        {
+            var episodes = await Db.Episodes.Include(e => e.Series).ToListAsync();
+            var episode = episodes.FirstOrDefault(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug && Slugify.SlugifyUrl(e.Series.Title) == SeriesSlug);
+            if (episode == null) return;
+
+            history = await Db.WatchHistories
+                .FirstOrDefaultAsync(h => h.UserId == userId && h.EpisodeId == episode.EpisodeId);
+            if (history == null)
+            {
+                history = new WatchHistory
+                {
+                    UserId = userId.Value,
+                    EpisodeId = episode.EpisodeId,
+                    ProgressSeconds = (int)currentTime,
+                    LastWatched = DateTime.UtcNow,
+                    Completed = false
+                };
+                Db.WatchHistories.Add(history);
+            }
+            else
+            {
+                history.ProgressSeconds = (int)currentTime;
+                history.LastWatched = DateTime.UtcNow;
+            }
+        }
+
+        await Db.SaveChangesAsync();
     }
 }
