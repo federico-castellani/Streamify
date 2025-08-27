@@ -24,7 +24,7 @@
         <AuthorizeView>
             <Authorized>
                 <MudMenu Label="@_userDisplay" EndIcon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit">
-                    <MudMenuItem Href="/account">Account</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.ManageAccounts" Href="/account">Account</MudMenuItem>
                     <MudDivider />
                     <MudMenuItem Href="/logout">
                         <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mr-2" /> Logout
@@ -40,8 +40,6 @@
         </MudDrawerHeader>
 
         <NavMenu />
-
-        <MudDivider Class="my-2" />
     </MudDrawer>
 
     <MudMainContent>
@@ -105,13 +103,6 @@
     private async Task ToggleThemeAsync()
     {
         _isDarkMode = !_isDarkMode;
-        await PersistThemeIfAuthenticatedAsync();
-    }
-
-    private async Task OnThemeSwitchChanged(bool value)
-    {
-        if (!_initialized) return;
-        _isDarkMode = value;
         await PersistThemeIfAuthenticatedAsync();
     }
 

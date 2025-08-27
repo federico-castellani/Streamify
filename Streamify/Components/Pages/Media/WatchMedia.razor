@@ -54,6 +54,7 @@
                             <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" 
                                          Color="Color.Primary" 
                                          Size="Size.Large"
+                                         Style="background-color: rgba(0,0,0,0.7);"
                                          OnClick="GoBack"/>
                         </MudItem>
                         <MudItem>
@@ -114,22 +115,27 @@
                                     <MudIconButton Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
                                                    Color="Color.Primary"
                                                    Size="Size.Large"
+                                                   Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="TogglePlayPause"/>
                                 </MudItem>
                                 <MudItem>
                                     <MudIconButton Icon="@Icons.Material.Filled.Replay10"
                                                    Color="Color.Primary"
                                                    Size="Size.Large"
+                                                   Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="() => Seek(-10)"/>
                                 </MudItem>
                                 <MudItem>
                                     <MudIconButton Icon="@Icons.Material.Filled.Forward10"
                                                    Color="Color.Primary"
                                                    Size="Size.Large"
+                                                   Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="() => Seek(10)"/>
                                 </MudItem>
                                 <MudItem>
-                                    <MudText Typo="Typo.body1" Style="color: white;">
+                                    <MudText 
+                                        Typo="Typo.body1" 
+                                        Style="color: white;">
                                         @FormatTime(currentTime) / @FormatTime(duration)
                                     </MudText>
                                 </MudItem>
@@ -143,6 +149,7 @@
                                     <MudIconButton Icon="@(isMuted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)"
                                                    Color="Color.Primary"
                                                    Size="Size.Large"
+                                                   Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="ToggleMute"/>
                                 </MudItem>
                                 <MudItem>
@@ -173,6 +180,7 @@
                                     <MudIconButton Icon="@Icons.Material.Filled.Fullscreen"
                                                    Color="Color.Primary"
                                                    Size="Size.Large"
+                                                   Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="ToggleFullscreen"/>
                                 </MudItem>
                             </MudGrid>
@@ -564,10 +572,11 @@
     
     private async Task SaveWatchHistory()
     {
-        if (currentTime < 1) return; // Don't save if not started
+        if (currentTime < 1) return;
 
-        var userId = await GetUserIdFromClaimsAsync();/* get current user id, e.g. from claims */;
+        var userId = await GetUserIdFromClaimsAsync();
         WatchHistory? history = null;
+        double threshold = 0.95; // 95%
 
         if (!string.IsNullOrEmpty(MovieSlug))
         {
@@ -594,6 +603,16 @@
                 history.ProgressSeconds = (int)currentTime;
                 history.LastWatched = DateTime.UtcNow;
             }
+
+            if (duration > 0 && currentTime >= duration * threshold)
+            {
+                history.Completed = true;
+                history.ProgressSeconds = 0;
+            }
+            else
+            {
+                history.Completed = false;
+            }
         }
         else if (!string.IsNullOrEmpty(SeriesSlug) && !string.IsNullOrEmpty(EpisodeSlug))
         {
@@ -619,6 +638,16 @@
             {
                 history.ProgressSeconds = (int)currentTime;
                 history.LastWatched = DateTime.UtcNow;
+            }
+
+            if (duration > 0 && currentTime >= duration * threshold)
+            {
+                history.Completed = true;
+                history.ProgressSeconds = 0;
+            }
+            else
+            {
+                history.Completed = false;
             }
         }
 

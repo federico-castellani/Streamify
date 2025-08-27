@@ -17,11 +17,11 @@
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">
         <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-            <MudIcon Icon="Icons.Material.Filled.ManageAccounts" Color="Color.Primary" Size="Size.Large" />
+            <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" Color="Color.Primary" Size="Size.Large" />
             <MudText Typo="Typo.h5" Class="ml-2">Account</MudText>
             <MudSpacer />
             <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="GoLogout">
-                <MudIcon Icon="Icons.Material.Filled.Logout" Class="mr-1" />
+                <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mr-1" />
                 Logout
             </MudButton>
         </MudStack>
@@ -100,9 +100,6 @@
     private string _userId = "";
     private string _email = "";
     private string _name = "";
-    private DateTimeOffset? _loginTimeUtc;
-    private string _loginTimeUtcDisplay = "";
-    private string _sessionAgeDisplay = "";
     private bool _unauthorized;
     private bool _savingProfile;
     private bool _changingPassword;
@@ -150,22 +147,6 @@
                 _profileModel.Email = _email;
             }
         }
-
-        if (long.TryParse(_principal.FindFirst("login_time")?.Value, out var ts))
-        {
-            _loginTimeUtc = DateTimeOffset.FromUnixTimeSeconds(ts);
-            _loginTimeUtcDisplay = _loginTimeUtc?.ToString("u") ?? "";
-            var age = DateTimeOffset.UtcNow - _loginTimeUtc;
-            _sessionAgeDisplay = age.HasValue ? FormatDuration(age.Value) : "";
-        }
-    }
-
-    private string FormatDuration(TimeSpan ts)
-    {
-        if (ts.TotalSeconds < 60) return $"{(int)ts.TotalSeconds}s";
-        if (ts.TotalMinutes < 60) return $"{(int)ts.TotalMinutes}m {ts.Seconds}s";
-        if (ts.TotalHours < 24) return $"{(int)ts.TotalHours}h {ts.Minutes}m";
-        return $"{(int)ts.TotalDays}d {ts.Hours}h";
     }
 
     private async Task SaveProfileAsync()

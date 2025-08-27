@@ -1,13 +1,21 @@
 ﻿<MudNavMenu Rounded="true" Bordered="true">
     
     <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    <MudNavLink Href="/movies" Icon="@Icons.Material.Filled.Movie">Film</MudNavLink>
+    <MudNavLink Href="/series" Icon="@Icons.Material.Filled.Tv">Serie TV</MudNavLink>
+    
     
     <AuthorizeView Roles="Admin">
         <Authorized>
-            <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Utenti</MudNavLink>
-            <MudNavLink Href="/admin/add-media" Icon="@Icons.Material.Filled.Add">Aggiungi Film o Serie TV</MudNavLink>
-            <MudNavLink Href="/admin/remove-media" Icon="@Icons.Material.Filled.Remove">Rimuovi Film o Serie TV</MudNavLink>
-            </Authorized>
+            <MudExpansionPanel
+                Icon="@Icons.Material.Filled.ArrowDropDown"
+                Text="Pannello Admin"
+                >
+                <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Utenti</MudNavLink>
+                <MudNavLink Href="/admin/add-media" Icon="@Icons.Material.Filled.Add">Aggiungi Film o Serie TV</MudNavLink>
+                <MudNavLink Href="/admin/remove-media" Icon="@Icons.Material.Filled.Remove">Rimuovi Film o Serie TV</MudNavLink>
+            </MudExpansionPanel>
+        </Authorized>
     </AuthorizeView>
     
 </MudNavMenu>

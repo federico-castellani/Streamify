@@ -1,0 +1,18 @@
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body1" Class="mb-4" Style="word-break: break-word; white-space: pre-line;">
+            @Message
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Secondary" OnClick="OnCancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="OnConfirm">Confirm</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public string Message { get; set; } = "Are you sure you want to remove this item?";
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
+    private void OnCancel() => MudDialog.Cancel();
+    private void OnConfirm() => MudDialog.Close(DialogResult.Ok(true));
+}

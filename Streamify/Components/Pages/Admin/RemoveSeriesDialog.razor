@@ -1,0 +1,35 @@
+@using Streamify.Data
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h5">@SeriesTitle</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">Seleziona un episodio da eliminare o una intera serie:</MudText>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" Class="mb-3" OnClick="OnRemoveSeries">
+            Rimuovi serie completa
+        </MudButton>
+        <MudList T="string">
+            @foreach (var ep in Episodes)
+            {
+                <MudListItem T="string">
+                    <MudText>@($"S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2} - {ep.Title}")</MudText>
+                    <MudButton Color="Color.Error" Size="Size.Small" OnClick="@(() => OnRemoveEpisode(ep.EpisodeId))">
+                        Rimuovi episodio
+                    </MudButton>
+                </MudListItem>
+            }
+        </MudList>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Secondary" OnClick="OnCancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public string SeriesTitle { get; set; }
+    [Parameter] public List<Episode> Episodes { get; set; } = new();
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
+
+    private void OnCancel() => MudDialog.Cancel();
+    private void OnRemoveSeries() => MudDialog.Close(DialogResult.Ok("series"));
+    private void OnRemoveEpisode(int episodeId) => MudDialog.Close(DialogResult.Ok(episodeId));
+}

@@ -2,11 +2,14 @@
 @using Microsoft.EntityFrameworkCore
 @using Streamify.Data
 @using Streamify.TMDB
-@using MudBlazor
+@inject IDialogService DialogService
+@using Streamify.Utility
 @attribute [Authorize(Roles = "Admin")]
 
 @inject StreamifyDbContext Db
 @inject ITmdbClient Tmdb
+
+<PageTitle>Rimuovi Media</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
     <MudText Typo="Typo.h3">Remove Media</MudText>
@@ -29,7 +32,14 @@
             @foreach (var movie in FilteredMovies)
             {
                 <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                    @PosterCard(movie.Title, moviePosterUrls.GetValueOrDefault(movie.MovieId), false, () => RemoveMovie(movie.MovieId))
+                    @PosterCardHelper.PosterCard(
+                        this,
+                        movie.Title,
+                        null,
+                        new Meta(movie.TmdbId, movie.Title, false, moviePosterUrls.GetValueOrDefault(movie.MovieId), null, null),
+                        Tmdb,
+                        () => ConfirmRemoveMovie(movie.MovieId)
+                    )
                 </MudItem>
             }
         </MudGrid>
@@ -38,7 +48,14 @@
             @foreach (var series in FilteredSeries)
             {
                 <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                    @PosterCard(series.Title, seriesPosterUrls.GetValueOrDefault(series.SeriesId), true, () => RemoveSeries(series.SeriesId))
+                    @PosterCardHelper.PosterCard(
+                        this,
+                        series.Title,
+                        null,
+                        new Meta(series.TmdbId, series.Title, true, seriesPosterUrls.GetValueOrDefault(series.SeriesId), null, null),
+                        Tmdb,
+                        () => ConfirmRemoveSeries(series.SeriesId)
+                    )
                 </MudItem>
             }
         </MudGrid>
@@ -126,88 +143,59 @@
         seriesPosterUrls.Remove(seriesId);
         StateHasChanged();
     }
-
-    // PosterCard method for consistent visuals
-    private RenderFragment PosterCard(string title, string? imageUrl, bool isSeries, Func<Task> onDelete)
-    => builder =>
+    
+    private async void ConfirmRemoveMovie(int movieId)
     {
-        var seq = 0;
-        builder.OpenComponent<MudCard>(seq++);
-        builder.AddAttribute(seq++, "Class", "d-flex flex-column");
-        builder.AddAttribute(seq++, "Style", "height: 100%;");
-        builder.AddAttribute(seq++, "Elevation", 2);
-        builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(b =>
+        var parameters = new DialogParameters { ["Message"] = "Are you sure you want to delete this movie?" };
+        var options = new DialogOptions { CloseButton = false, MaxWidth = MaxWidth.Small };
+        var dialog = DialogService.Show<RemoveDialog>("Confirm Delete", parameters, options);
+        var result = await dialog.Result;
+        if (!result.Canceled)
+            await RemoveMovie(movieId);
+    }
+
+    private async void ConfirmRemoveSeries(int seriesId)
+    {
+        var series = seriesList.FirstOrDefault(s => s.SeriesId == seriesId);
+        var episodes = Db.Episodes.Where(e => e.SeriesId == seriesId).OrderBy(e => e.SeasonNumber).ThenBy(e => e.EpisodeNumber).ToList();
+
+        var parameters = new DialogParameters
         {
-            var s = 0;
-            b.OpenElement(s++, "div");
-            b.AddAttribute(s++, "class", "position-relative");
-            b.AddAttribute(s++, "style", "height: 300px; overflow: hidden;");
+            ["SeriesTitle"] = series?.Title ?? "Series",
+            ["Episodes"] = episodes
+        };
+        var options = new DialogOptions { CloseButton = false, MaxWidth = MaxWidth.Medium };
+        var dialog = DialogService.Show<RemoveSeriesDialog>("Remove Series or Episode", parameters, options);
+        var result = await dialog.Result;
 
-            if (!string.IsNullOrEmpty(imageUrl))
+        if (!result.Canceled)
+        {
+            if (result.Data is string && (string)result.Data == "series")
             {
-                b.OpenComponent<MudImage>(s++);
-                b.AddAttribute(s++, "Src", imageUrl);
-                b.AddAttribute(s++, "Alt", title);
-                b.AddAttribute(s++, "ObjectFit", ObjectFit.Cover);
-                b.AddAttribute(s++, "Height", 300);
-                b.AddAttribute(s++, "Style", "width: 100%; transition: opacity 0.3s ease;");
-                b.CloseComponent();
+                await RemoveSeries(seriesId);
             }
-            else
+            else if (result.Data is int episodeId)
             {
-                b.OpenElement(s++, "div");
-                b.AddAttribute(s++, "class", "d-flex align-center justify-center");
-                b.AddAttribute(s++, "style", "height: 300px; background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%); border-radius: 4px;");
-                b.OpenComponent<MudStack>(s++);
-                b.AddAttribute(s++, "AlignItems", AlignItems.Center);
-                b.AddAttribute(s++, "Spacing", 2);
-                b.AddAttribute(s++, "ChildContent", (RenderFragment)(fallback =>
-                {
-                    fallback.OpenComponent<MudIcon>(0);
-                    fallback.AddAttribute(1, "Icon", isSeries ? Icons.Material.Filled.Tv : Icons.Material.Filled.Movie);
-                    fallback.AddAttribute(2, "Size", Size.Large);
-                    fallback.AddAttribute(3, "Color", Color.Default);
-                    fallback.CloseComponent();
-
-                    fallback.OpenComponent<MudText>(4);
-                    fallback.AddAttribute(5, "Typo", Typo.caption);
-                    fallback.AddAttribute(6, "Align", Align.Center);
-                    fallback.AddAttribute(7, "Color", Color.Default);
-                    fallback.AddAttribute(8, "ChildContent", (RenderFragment)(t => t.AddContent(0, "Image not available")));
-                    fallback.CloseComponent();
-                }));
-                b.CloseComponent();
-                b.CloseElement();
+                await RemoveEpisode(episodeId);
             }
+        }
+    }
 
-            b.CloseElement(); // position-relative div
+    private async Task RemoveEpisode(int episodeId)
+    {
+        var episode = await Db.Episodes.FindAsync(episodeId);
+        if (episode == null) return;
 
-            b.OpenComponent<MudCardContent>(s++);
-            b.AddAttribute(s++, "Class", "pt-3 pb-2 flex-grow-1");
-            b.AddAttribute(s++, "ChildContent", (RenderFragment)(c =>
-            {
-                c.OpenComponent<MudText>(0);
-                c.AddAttribute(1, "Typo", Typo.subtitle2);
-                c.AddAttribute(2, "Align", Align.Center);
-                c.AddAttribute(3, "Class", "font-weight-medium line-height-sm");
-                c.AddAttribute(4, "Style", "word-break: break-word; hyphens: auto;");
-                c.AddAttribute(5, "ChildContent", (RenderFragment)(t => t.AddContent(0, title)));
-                c.CloseComponent();
-            }));
-            b.CloseComponent();
+        var histories = Db.WatchHistories.Where(h => h.EpisodeId == episodeId);
+        Db.WatchHistories.RemoveRange(histories);
 
-            b.OpenComponent<MudCardActions>(s++);
-            b.AddAttribute(s++, "ChildContent", (RenderFragment)(a =>
-            {
-                a.OpenComponent<MudButton>(0);
-                a.AddAttribute(1, "Color", Color.Error);
-                a.AddAttribute(2, "Variant", Variant.Filled);
-                a.AddAttribute(3, "OnClick", EventCallback.Factory.Create<MouseEventArgs>(this, async (MouseEventArgs e) => await onDelete()));
-                a.AddAttribute(4, "ChildContent", (RenderFragment)(t => t.AddContent(0, "Delete")));
-                a.CloseComponent();
-            }));
-            b.CloseComponent();
-        }));
-        builder.CloseComponent();
-    };
+        var mediaFiles = Db.MediaFiles.Where(m => m.EpisodeId == episodeId);
+        Db.MediaFiles.RemoveRange(mediaFiles);
+
+        Db.Episodes.Remove(episode);
+        await Db.SaveChangesAsync();
+        
+        StateHasChanged();
+    }
 }
+
