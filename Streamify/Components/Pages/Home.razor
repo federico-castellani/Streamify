@@ -2,12 +2,16 @@
 @using System.Security.Claims
 @using Microsoft.EntityFrameworkCore
 @using Streamify.Data
+@using Streamify.Services
 @using Streamify.TMDB
 @using Streamify.Utility
 @inject StreamifyDbContext Db
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ITmdbClient Tmdb
 @inject NavigationManager Nav
+@inject DataService DataService
+@inject MetaService Meta
+
 @attribute [Authorize]
 
 <PageTitle>Streamify</PageTitle>
@@ -389,9 +393,6 @@
 
     private bool isMovieCarouselHovered = false;
     private bool isSeriesCarouselHovered = false;
-    
-    private readonly Dictionary<int, Meta> _meta = new();
-    private readonly SemaphoreSlim _metaLock = new(1, 1);
 
     protected override async Task OnInitializedAsync()
     {
@@ -409,23 +410,21 @@
         foreach (var m in _recentMovies) needed.Add((m.TmdbId, m.Title, false));
         foreach (var s in _recentSeries) needed.Add((s.TmdbId, s.Title, true));
 
-        await LoadMetadataBatchAsync(needed);
+        await Meta.LoadMetadataBatchAsync(needed);
 
         _loading = false;
     }
-    
+
     private async Task OnSearchInput(KeyboardEventArgs e)
     {
-        // Trigger search on Enter key or after a short delay for real-time search
         if (e.Key == "Enter" || string.IsNullOrWhiteSpace(_searchText))
         {
             await PerformSearch();
         }
         else
         {
-            // Optional: Add debounced search for real-time results
-            await Task.Delay(300); // Small delay to avoid too many requests
-            if (_searchText.Length >= 2) // Only search if at least 2 characters
+            await Task.Delay(300);
+            if (_searchText.Length >= 2)
             {
                 await PerformSearch();
             }
@@ -449,37 +448,23 @@
 
         try
         {
-            var searchTerm = _searchText.Trim().ToLower();
+            var searchTerm = _searchText.Trim();
+            _searchMovieResults = await DataService.SearchMoviesAsync(searchTerm);
+            _searchSeriesResults = await DataService.SearchSeriesAsync(searchTerm);
 
-            // Search movies
-            _searchMovieResults = await Db.Movies
-                .Where(m => m.Title.ToLower().Contains(searchTerm))
-                .OrderBy(m => m.Title)
-                .Take(20)
-                .ToListAsync();
-
-            // Search series
-            _searchSeriesResults = await Db.Series
-                .Where(s => s.Title.ToLower().Contains(searchTerm))
-                .OrderBy(s => s.Title)
-                .Take(20)
-                .ToListAsync();
-
-            // Load metadata for search results
             var searchNeeded = new HashSet<(int tmdbId, string title, bool isSeries)>();
-            foreach (var m in _searchMovieResults) 
+            foreach (var m in _searchMovieResults)
                 searchNeeded.Add((m.TmdbId, m.Title, false));
-            foreach (var s in _searchSeriesResults) 
+            foreach (var s in _searchSeriesResults)
                 searchNeeded.Add((s.TmdbId, s.Title, true));
 
             if (searchNeeded.Any())
             {
-                await LoadMetadataBatchAsync(searchNeeded);
+                await Meta.LoadMetadataBatchAsync(searchNeeded);
             }
         }
         catch (Exception ex)
         {
-            // Log error or handle as needed
             Console.WriteLine($"Search error: {ex.Message}");
             _searchMovieResults.Clear();
             _searchSeriesResults.Clear();
@@ -502,91 +487,16 @@
 
     private async Task LoadDataAsync()
     {
-        _continueMovieEntries = await Db.WatchHistories
-            .Include(h => h.Movie)
-            .Where(h => h.UserId == _userId && h.MovieId != null && !h.Completed && h.ProgressSeconds > 0)
-            .OrderByDescending(h => h.LastWatched)
-            .Take(20)
-            .ToListAsync();
-
-        _continueEpisodeEntries = await Db.WatchHistories
-            .Include(h => h.Episode)!.ThenInclude(e => e.Series)
-            .Where(h => h.UserId == _userId && h.EpisodeId != null && !h.Completed && h.ProgressSeconds > 0)
-            .OrderByDescending(h => h.LastWatched)
-            .Take(20)
-            .ToListAsync();
-
-        _popularMovies = await Db.Movies
-            .OrderByDescending(m => m.WatchHistoryEntries.Count)
-            .ThenBy(m => m.MovieId)
-            .Take(30)
-            .ToListAsync();
-
-        var seriesCounts = await Db.WatchHistories
-            .Where(h => h.EpisodeId != null)
-            .GroupBy(h => h.Episode!.SeriesId)
-            .Select(g => new { SeriesId = g.Key, Count = g.Count() })
-            .ToListAsync();
-        var seriesLookup = seriesCounts.ToDictionary(x => x.SeriesId, x => x.Count);
-
-        _popularSeries = await Db.Series
-            .Include(s => s.Episodes)
-            .ToListAsync();
-        _popularSeries = _popularSeries
-            .OrderByDescending(s => seriesLookup.TryGetValue(s.SeriesId, out var c) ? c : 0)
-            .ThenBy(s => s.SeriesId)
-            .Take(30)
-            .ToList();
-
-        _recentMovies = await Db.Movies
-            .OrderByDescending(m => m.MovieId)
-            .Take(30)
-            .ToListAsync();
-
-        _recentSeries = await Db.Series
-            .OrderByDescending(s => s.SeriesId)
-            .Take(30)
-            .ToListAsync();
-    }
-
-    // Updated LoadMetadataBatchAsync to include BackdropPath
-    private async Task LoadMetadataBatchAsync(IEnumerable<(int tmdbId, string title, bool isSeries)> items)
-    {
-        var tasks = items
-            .Where(i => !_meta.ContainsKey(i.tmdbId))
-            .Select(async i =>
-            {
-                try
-                {
-                    var results = await Tmdb.SearchAsync(i.title);
-                    var match = results.FirstOrDefault(r => r.Id == i.tmdbId)
-                                ?? results.FirstOrDefault(r => string.Equals(r.Title, i.title, StringComparison.OrdinalIgnoreCase));
-                    
-                    // Now includes BackdropPath from the updated search results
-                    var meta = new Meta(i.tmdbId, i.title, i.isSeries, match?.PosterPath, match?.BackdropPath, match?.Overview);
-
-                    await _metaLock.WaitAsync();
-                    try
-                    {
-                        _meta[i.tmdbId] = meta;
-                    }
-                    finally
-                    {
-                        _metaLock.Release();
-                    }
-                }
-                catch
-                {
-                    // Handle error gracefully
-                }
-            });
-
-        await Task.WhenAll(tasks);
-        StateHasChanged();
+        _continueMovieEntries = await DataService.GetContinueMovieEntriesAsync(_userId);
+        _continueEpisodeEntries = await DataService.GetContinueEpisodeEntriesAsync(_userId);
+        _popularMovies = await DataService.GetPopularMoviesAsync();
+        _popularSeries = await DataService.GetPopularSeriesAsync();
+        _recentMovies = await DataService.GetRecentMoviesAsync();
+        _recentSeries = await DataService.GetRecentSeriesAsync();
     }
 
     private Meta GetMeta(int tmdbId, string title, bool isSeries)
-        => _meta.TryGetValue(tmdbId, out var m) ? m : new Meta(tmdbId, title, isSeries, null, null, null);
+        => Meta.GetMetaAsync(tmdbId, title, isSeries).Result;
 
     private static double CalcProgress(int progressSec, int? durationMin)
         => (durationMin is null or <= 0) ? 0 : Math.Clamp(progressSec / (durationMin.Value * 60.0), 0, 1);
