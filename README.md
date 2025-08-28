@@ -1,5 +1,4 @@
 # Streamify
-
 Streamify is a web-based application that transforms the way you browse, discover, and enjoy multimedia content online. Whether you’re a music lover, a podcast enthusiast, or a fan of streaming videos, Streamify delivers a fast, intuitive, and enjoyable experience.
 
 ## Features
