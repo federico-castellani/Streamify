@@ -1,6 +1,6 @@
 ﻿@page "/"
 @using System.Security.Claims
-@using Microsoft.EntityFrameworkCore
+@inject IJSRuntime JS
 @using Streamify.Data
 @using Streamify.Services
 @using Streamify.TMDB
@@ -157,55 +157,75 @@
         {
             <MudStack Spacing="1" Class="mb-6">
                 <MudText Typo="Typo.h5">Continua a guardare</MudText>
-                <MudGrid GutterSize="3">
-                    @foreach (var c in _continueMovieEntries)
+                @{
+                    // Group episodes by series and take only the last watched episode per series
+                    var lastEpisodes = _continueEpisodeEntries
+                        .GroupBy(e => e.Episode!.SeriesId)
+                        .Select(g => g.OrderByDescending(x => x.LastWatched).First())
+                        .ToList();
+
+                    var continueItems = new List<object>();
+                    continueItems.AddRange(_continueMovieEntries);
+                    continueItems.AddRange(lastEpisodes);
+
+                    var slides = new List<List<object>>();
+                    for (int i = 0; i < continueItems.Count; i += visibleCount)
                     {
-                        if (c.Movie is { } m)
-                        {
-                            var meta = GetMeta(m.TmdbId, m.Title, false);
-                            var progress = CalcProgress(c.ProgressSeconds, m.DurationMinutes);
-                            <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                @PosterCardHelper.PosterCard(
-                                    this,
-                                    meta.Title,
-                                    null,
-                                    GetMeta(m.TmdbId, m.Title, false),
-                                    progress: progress,
-                                    onClick: () => {
-                                        var movie = _popularMovies.FirstOrDefault(m => m.TmdbId == meta.TmdbId);
-                                        if (movie != null)
-                                            Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(movie.Title)}");
-                                    },
-                                    tmdb: Tmdb
-                                )
-                            </MudItem>
-                        }
+                        slides.Add(continueItems.Skip(i).Take(visibleCount).ToList());
                     }
-                    @foreach (var c in _continueEpisodeEntries)
+                }
+                <MudCarousel TData="object"
+                             AutoCycle="false"
+                             ShowArrows="true"
+                             Style="height: 29em;">
+                    @foreach (var slide in slides)
                     {
-                        if (c.Episode is { } ep && ep.Series is { } series)
-                        {
-                            var meta = GetMeta(series.TmdbId, series.Title, true);
-                            var title = $"{series.Title} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}";
-                            var progress = CalcProgress(c.ProgressSeconds, ep.DurationMinutes);
-                            <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
-                                @PosterCardHelper.PosterCard(
-                                    this,
-                                    title,
-                                    null,
-                                    GetMeta(series.TmdbId, series.Title, true),
-                                    progress: progress,
-                                    onClick: () => {
-                                        var series = _popularSeries.FirstOrDefault(s => s.TmdbId == meta.TmdbId);
-                                        if (series != null) 
-                                            Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}");
-                                    },
-                                    tmdb: Tmdb
-                                )
-                            </MudItem>
-                        }
+                        <MudCarouselItem>
+                            <MudGrid GutterSize="3" Justify="Justify.Center">
+                                @foreach (var item in slide)
+                                {
+                                    if (item is WatchHistory c && c.Movie is { } m)
+                                    {
+                                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                                        var progress = CalcProgress(c.ProgressSeconds, m.DurationMinutes);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                meta.Title,
+                                                null,
+                                                meta,
+                                                progress: progress,
+                                                onClick: () => {
+                                                    Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(m.Title)}/play");
+                                                },
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                    else if (item is WatchHistory ce && ce.Episode is { } ep && ep.Series is { } series)
+                                    {
+                                        var meta = GetMeta(series.TmdbId, series.Title, true);
+                                        var title = $"{series.Title} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}";
+                                        var progress = CalcProgress(ce.ProgressSeconds, ep.DurationMinutes);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                title,
+                                                null,
+                                                meta,
+                                                progress: progress,
+                                                onClick: () => {
+                                                    Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}/play/{Slugify.SlugifyUrl(ep.Title)}");
+                                                },
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                }
+                            </MudGrid>
+                        </MudCarouselItem>
                     }
-                </MudGrid>
+                </MudCarousel>
             </MudStack>
         }
 
@@ -215,7 +235,7 @@
                 <MudText Typo="Typo.h5">Film popolari</MudText>
                 @{
                     var items = _popularMovies.Take(10).ToList();
-                    var visibleCount = 5;
+                    
                     var slides = new List<List<Movie>>();
                     for (int i = 0; i < items.Count; i += visibleCount)
                     {
@@ -266,7 +286,6 @@
                 <MudText Typo="Typo.h5">Serie popolari</MudText>
                 @{
                     var items = _popularSeries.Take(10).ToList();
-                    var visibleCount = 5;
                     var slides = new List<List<Series>>();
                     for (int i = 0; i < items.Count; i += visibleCount)
                     {
@@ -344,18 +363,9 @@
                                 null,
                                 GetMeta(s.TmdbId, s.Title, true),
                                 onClick: () => {
-                                    if (meta.IsSeries)
-                                    {
-                                        var series = _popularSeries.FirstOrDefault(s => s.TmdbId == meta.TmdbId);
-                                        if (series != null)
-                                            Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}");
-                                    }
-                                    else
-                                    {
-                                        var movie = _popularMovies.FirstOrDefault(m => m.TmdbId == meta.TmdbId);
-                                        if (movie != null)
-                                            Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(movie.Title)}");
-                                    }
+                                    var series = _popularSeries.FirstOrDefault(s => s.TmdbId == meta.TmdbId);
+                                    if (series != null)
+                                        Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}");
                                 },
                                 tmdb: Tmdb
                             )
@@ -390,9 +400,44 @@
 
     private int movieCarouselIndex = 0;
     private int seriesCarouselIndex = 0;
+    private int visibleCount = 5;
+    private DotNetObjectReference<Home>? _dotNetRef;
 
     private bool isMovieCarouselHovered = false;
     private bool isSeriesCarouselHovered = false;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var width = await BrowserService.GetInnerWidth(JS);
+            SetVisibleCount(width);
+
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("browser.onResize", _dotNetRef);
+
+            StateHasChanged();
+        }
+    }
+    
+    [JSInvokable]
+    public void OnBrowserResize(int width)
+    {
+        SetVisibleCount(width);
+        StateHasChanged();
+    }
+    
+    private void SetVisibleCount(int width)
+    {
+        if (width < 600)
+            visibleCount = 1;
+        else if (width < 960)
+            visibleCount = 2;
+        else if (width < 1280)
+            visibleCount = 3;
+        else
+            visibleCount = 5;
+    }
 
     protected override async Task OnInitializedAsync()
     {

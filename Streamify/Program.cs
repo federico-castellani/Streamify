@@ -31,6 +31,7 @@ builder.Services.AddAuthentication("Cookies")
 builder.Services.AddScoped<ILoginService, LoginService>();
 builder.Services.AddScoped<DataService>();
 builder.Services.AddScoped<MetaService>();
+builder.Services.AddScoped<BrowserService>();
 builder.Services.AddScoped<IThemeService, ThemeService>();
 
 builder.Services.AddHttpClient<ITmdbClient, TmdbClient>(c =>
