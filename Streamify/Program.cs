@@ -7,8 +7,14 @@ using Streamify.Components;
 using Streamify.Endpoints;
 using Streamify.Services;
 using Streamify.TMDB;
+using DotNetEnv;
+
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration["TMDB:ApiKey"] = Environment.GetEnvironmentVariable("TMDB_API_KEY");
+builder.Configuration["TMDB:Language"] = Environment.GetEnvironmentVariable("TMDB_LANGUAGE");
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

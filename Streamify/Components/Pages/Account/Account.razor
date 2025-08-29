@@ -14,6 +14,8 @@
 
 @attribute [Authorize]
 
+<PageTitle>Account</PageTitle>
+
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudPaper Elevation="4" Class="pa-6">
         <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
@@ -28,7 +30,7 @@
 
         @if (_unauthorized)
         {
-            <MudAlert Severity="Severity.Warning">Not authenticated. Redirecting...</MudAlert>
+            <MudAlert Severity="Severity.Warning">Non autenticato, reindirizzamento...</MudAlert>
         }
         else if (_principal == null)
         {
@@ -38,26 +40,26 @@
         {
             <MudStack Spacing="3">
                 <MudPaper Class="pa-4" Elevation="1">
-                    <MudText Typo="Typo.subtitle1" Class="mb-3">Edit Profile</MudText>
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Modifica Profilo</MudText>
                     <EditForm Model="_profileModel" OnValidSubmit="SaveProfileAsync">
                         <DataAnnotationsValidator />
-                        <MudTextField Label="Name" @bind-Value="_profileModel.Name" Variant="Variant.Outlined" Class="mb-3" />
+                        <MudTextField Label="Nome" @bind-Value="_profileModel.Name" Variant="Variant.Outlined" Class="mb-3" />
                         <MudTextField Label="Email" @bind-Value="_profileModel.Email" Variant="Variant.Outlined" Class="mb-3" />
                         <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_savingProfile">
                             @if (_savingProfile)
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
                             }
-                            Save
+                            Salva
                         </MudButton>
                     </EditForm>
                 </MudPaper>
 
                 <MudPaper Class="pa-4" Elevation="1">
-                    <MudText Typo="Typo.subtitle1" Class="mb-3">Change Password</MudText>
+                    <MudText Typo="Typo.subtitle1" Class="mb-3">Cambia Password</MudText>
                     <EditForm Model="_passwordModel" OnValidSubmit="ChangePasswordAsync">
                         <DataAnnotationsValidator />
-                        <MudTextField Label="Current Password"
+                        <MudTextField Label="Password Attuale"
                                       @bind-Value="_passwordModel.CurrentPassword"
                                       InputType="@(_showCurrent ? InputType.Text : InputType.Password)"
                                       Variant="Variant.Outlined"
@@ -65,7 +67,7 @@
                                       Adornment="Adornment.End"
                                       AdornmentIcon="@(_showCurrent ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                                       OnAdornmentClick="@(()=> _showCurrent = !_showCurrent)" />
-                        <MudTextField Label="New Password"
+                        <MudTextField Label="Nuova Password"
                                       @bind-Value="_passwordModel.NewPassword"
                                       InputType="@(_showNew ? InputType.Text : InputType.Password)"
                                       Variant="Variant.Outlined"
@@ -73,7 +75,7 @@
                                       Adornment="Adornment.End"
                                       AdornmentIcon="@(_showNew ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                                       OnAdornmentClick="@(()=> _showNew = !_showNew)" />
-                        <MudTextField Label="Confirm New Password"
+                        <MudTextField Label="Conferma Nuova Password"
                                       @bind-Value="_passwordModel.ConfirmPassword"
                                       InputType="@(_showConfirm ? InputType.Text : InputType.Password)"
                                       Variant="Variant.Outlined"
@@ -86,7 +88,7 @@
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
                             }
-                            Update Password
+                            Cambia Password
                         </MudButton>
                     </EditForm>
                 </MudPaper>

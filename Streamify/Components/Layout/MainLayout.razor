@@ -24,12 +24,16 @@
                        OnClick="_ => ToggleThemeAsync()" />
         <AuthorizeView>
             <Authorized>
-                <MudMenu Label="@_userDisplay" EndIcon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit">
+                <MudMenu
+                    Label="@_userDisplay"
+                    EndIcon="@Icons.Material.Filled.AccountCircle"
+                    Color="Color.Inherit"
+                    AnchorOrigin="Origin.BottomCenter"
+                    TransformOrigin="Origin.TopCenter"
+                    >
                     <MudMenuItem Icon="@Icons.Material.Filled.ManageAccounts" Href="/account">Account</MudMenuItem>
-                    <MudDivider />
-                    <MudMenuItem Href="/logout">
-                        <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mr-2" /> Logout
-                    </MudMenuItem>
+                    <MudDivider/>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Logout" Href="/logout">Logout</MudMenuItem>
                 </MudMenu>
             </Authorized>
         </AuthorizeView>

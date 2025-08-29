@@ -5,13 +5,13 @@
         </MudText>
     </DialogContent>
     <DialogActions>
-        <MudButton Color="Color.Secondary" OnClick="OnCancel">Cancel</MudButton>
-        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="OnConfirm">Confirm</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="OnCancel">Annulla</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="OnConfirm">Conferma</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    [Parameter] public string Message { get; set; } = "Are you sure you want to remove this item?";
+    [Parameter] public string Message { get; set; } = "Confermi la rimozione del film?";
     [CascadingParameter] IMudDialogInstance MudDialog { get; set; }
     private void OnCancel() => MudDialog.Cancel();
     private void OnConfirm() => MudDialog.Close(DialogResult.Ok(true));

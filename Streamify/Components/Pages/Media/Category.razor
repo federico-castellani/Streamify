@@ -1,0 +1,273 @@
+@page "/{type}"
+@using Streamify.Data
+@using Streamify.Services
+@using Streamify.TMDB
+@using Streamify.Utility
+@inject NavigationManager Nav
+@inject DataService DataService
+@inject ITmdbClient Tmdb
+@inject MetaService Meta
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>@(IsMovies ? "Film" : "Serie TV")</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
+    @if (_loading)
+    {
+        <MudProgressCircular Indeterminate Class="ma-auto d-block"/>
+    }
+    else
+    {
+        @if (_continueEntries.Any())
+        {
+            <MudStack Spacing="1" Class="mb-6">
+                <MudText Typo="Typo.h5">Continua a guardare</MudText>
+                <MudCarousel
+                    TData="object"
+                    @bind-SelectedIndex="continueCarouselIndex"
+                    AutoCycle="false"
+                    ShowArrows="true"
+                    Style="height: 29em;">
+                    @foreach (var slide in GetContinueSlides())
+                    {
+                        <MudCarouselItem>
+                            <MudGrid GutterSize="3" Justify="Justify.Center">
+                                @foreach (var entry in slide)
+                                {
+                                    if (IsMovies && entry is WatchHistory c && c.Movie is { } m)
+                                    {
+                                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                                        var progress = CalcProgress(c.ProgressSeconds, m.DurationMinutes);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                meta.Title,
+                                                null,
+                                                meta,
+                                                progress: progress,
+                                                onClick: () => Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(m.Title)}/play"),
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                    else if (!IsMovies && entry is WatchHistory ce && ce.Episode is { } ep && ep.Series is { } series)
+                                    {
+                                        var meta = GetMeta(series.TmdbId, series.Title, true);
+                                        var title = $"{series.Title} S{ep.SeasonNumber:D2}E{ep.EpisodeNumber:D2}";
+                                        var progress = CalcProgress(ce.ProgressSeconds, ep.DurationMinutes);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                title,
+                                                null,
+                                                meta,
+                                                progress: progress,
+                                                onClick: () => Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(series.Title)}/play/{Slugify.SlugifyUrl(ep.Title)}"),
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                }
+                            </MudGrid>
+                        </MudCarouselItem>
+                    }
+                </MudCarousel>
+            </MudStack>
+        }
+
+        <MudStack Spacing="1" Class="mb-6">
+            <MudText Typo="Typo.h5">@((IsMovies ? "Film popolari" : "Serie popolari"))</MudText>
+            <div @onmouseover="() => isPopularCarouselHovered = true" @onmouseout="() => isPopularCarouselHovered = false">
+                <MudCarousel
+                    TData="object"
+                    @bind-SelectedIndex="popularCarouselIndex"
+                    AutoCycle="@(!isPopularCarouselHovered)"
+                    AutoCycleTime="TimeSpan.FromMilliseconds(2000)"
+                    ShowArrows="true"
+                    Style="height: 29em;">
+                    @foreach (var slide in GetPopularSlides())
+                    {
+                        <MudCarouselItem>
+                            <MudGrid GutterSize="3" Justify="Justify.Center">
+                                @foreach (var item in slide)
+                                {
+                                    if (IsMovies && item is Movie m)
+                                    {
+                                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                meta.Title,
+                                                null,
+                                                meta,
+                                                onClick: () => Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(m.Title)}"),
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                    else if (!IsMovies && item is Series s)
+                                    {
+                                        var meta = GetMeta(s.TmdbId, s.Title, true);
+                                        <MudItem xs="6" sm="4" md="2" lg="2" xl="2" Class="d-flex">
+                                            @PosterCardHelper.PosterCard(
+                                                this,
+                                                meta.Title,
+                                                null,
+                                                meta,
+                                                onClick: () => Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(s.Title)}"),
+                                                tmdb: Tmdb
+                                            )
+                                        </MudItem>
+                                    }
+                                }
+                            </MudGrid>
+                        </MudCarouselItem>
+                    }
+                </MudCarousel>
+            </div>
+        </MudStack>
+    }
+    @if ((IsMovies && _recentMovies.Any()) || (!IsMovies && _recentSeries.Any()))
+    {
+        <MudStack Spacing="1" Class="mb-6">
+            <MudText Typo="Typo.h5">Aggiunti di recente</MudText>
+            <MudGrid GutterSize="3">
+                @if (IsMovies)
+                {
+                    @foreach (var m in _recentMovies)
+                    {
+                        var meta = GetMeta(m.TmdbId, m.Title, false);
+                        <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                            @PosterCardHelper.PosterCard(
+                                this,
+                                meta.Title,
+                                null,
+                                meta,
+                                onClick: () => Nav.NavigateTo($"/media/movie/{Slugify.SlugifyUrl(m.Title)}"),
+                                tmdb: Tmdb
+                            )
+                        </MudItem>
+                    }
+                }
+                else
+                {
+                    @foreach (var s in _recentSeries)
+                    {
+                        var meta = GetMeta(s.TmdbId, s.Title, true);
+                        <MudItem xs="6" sm="4" md="3" lg="2" xl="2" Class="d-flex">
+                            @PosterCardHelper.PosterCard(
+                                this,
+                                meta.Title,
+                                null,
+                                meta,
+                                onClick: () => Nav.NavigateTo($"/media/series/{Slugify.SlugifyUrl(s.Title)}"),
+                                tmdb: Tmdb
+                            )
+                        </MudItem>
+                    }
+                }
+            </MudGrid>
+        </MudStack>
+    }
+</MudContainer>
+
+@code {
+    [Parameter]
+    public string? type { get; set; }
+
+    private bool _loading = true;
+    private List<Movie> _movies = new();
+    private List<Series> _series = new();
+    private List<WatchHistory> _continueEntries = new();
+    private List<Movie> _recentMovies = new();
+    private List<Series> _recentSeries = new();
+    private bool IsMovies => type?.ToLower() == "movies";
+    private int visibleCount = 5;
+    private int continueCarouselIndex = 0;
+    private int popularCarouselIndex = 0;
+    private bool isPopularCarouselHovered = false;
+    private int _userId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _movies.Clear();
+        _series.Clear();
+        _continueEntries.Clear();
+
+        continueCarouselIndex = 0;
+        popularCarouselIndex = 0;
+
+        // Get user ID
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        string? idStr = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        int.TryParse(idStr, out _userId);
+
+        if (IsMovies)
+        {
+            _movies = await DataService.GetPopularMoviesAsync();
+            _continueEntries = await DataService.GetContinueMovieEntriesAsync(_userId);
+            _recentMovies = await DataService.GetRecentMoviesAsync();
+            var needed = _movies.Select(m => (m.TmdbId, m.Title, false)).ToHashSet();
+            foreach (var h in _continueEntries) needed.Add((h.Movie!.TmdbId, h.Movie.Title, false));
+            foreach (var m in _recentMovies) needed.Add((m.TmdbId, m.Title, false));
+            await Meta.LoadMetadataBatchAsync(needed);
+        }
+        else
+        {
+            _series = await DataService.GetPopularSeriesAsync();
+            _continueEntries = await DataService.GetContinueEpisodeEntriesAsync(_userId);
+            _recentSeries = await DataService.GetRecentSeriesAsync();
+            var needed = _series.Select(s => (s.TmdbId, s.Title, true)).ToHashSet();
+            foreach (var h in _continueEntries) needed.Add((h.Episode!.Series.TmdbId, h.Episode.Series.Title, true));
+            foreach (var s in _recentSeries) needed.Add((s.TmdbId, s.Title, true));
+            await Meta.LoadMetadataBatchAsync(needed);
+        }
+        _loading = false;
+    }
+
+    private Meta GetMeta(int tmdbId, string title, bool isSeries)
+        => Meta.GetMetaAsync(tmdbId, title, isSeries).Result;
+
+    private List<List<object>> GetContinueSlides()
+    {
+        var slides = new List<List<object>>();
+        List<object> continueItems;
+
+        if (IsMovies)
+        {
+            continueItems = _continueEntries.Cast<object>().ToList();
+        }
+        else
+        {
+            // Group by SeriesId and take only the last watched episode per series
+            var lastEpisodes = _continueEntries
+                .Where(e => e.Episode?.SeriesId != null)
+                .GroupBy(e => e.Episode!.SeriesId)
+                .Select(g => g.OrderByDescending(x => x.LastWatched).First())
+                .Cast<object>()
+                .ToList();
+            continueItems = lastEpisodes;
+        }
+
+        for (int i = 0; i < continueItems.Count; i += visibleCount)
+        {
+            slides.Add(continueItems.Skip(i).Take(visibleCount).ToList());
+        }
+        return slides;
+    }
+
+    private List<List<object>> GetPopularSlides()
+    {
+        var items = IsMovies ? _movies.Cast<object>().Take(10).ToList() : _series.Cast<object>().Take(10).ToList();
+        var slides = new List<List<object>>();
+        for (int i = 0; i < items.Count; i += visibleCount)
+        {
+            slides.Add(items.Skip(i).Take(visibleCount).ToList());
+        }
+        return slides;
+    }
+
+    private static double CalcProgress(int progressSec, int? durationMin)
+        => (durationMin is null or <= 0) ? 0 : Math.Clamp(progressSec / (durationMin.Value * 60.0), 0, 1);
+}

@@ -9,6 +9,7 @@
 @inject StreamifyDbContext Db
 @inject ITmdbClient Tmdb
 @inject ILogger<Media> Logger
+@inject AuthenticationStateProvider AuthProvider
 
 @attribute [Authorize]
 
@@ -27,9 +28,11 @@
     private List<Episode>? Episodes;
     private List<Episode>? FilteredEpisodes;
     private List<int>? AvailableSeasons;
-    private int? SelectedSeason;
+    private int SelectedSeason;
     private bool IsLoading = true;
     private string? ErrorMessage;
+    private HashSet<int> CompletedEpisodeIds = new();
+    private bool IsMovieWatched = false;
 
     // Cache the image URLs to avoid multiple generations
     private string? _cachedBackdropUrl;
@@ -52,8 +55,41 @@
         {
             IsLoading = false;
         }
+
+        if (Series != null)
+        {
+            await LoadCompletedEpisodes();
+        } else if (Movie != null)
+        {
+            await CheckMovieWatched();
+        }
     }
 
+    private async Task LoadCompletedEpisodes()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var userIdStr = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(userIdStr, out var userId))
+        {
+            CompletedEpisodeIds = (await Db.WatchHistories
+                    .Where(w => w.UserId == userId && w.EpisodeId != null && w.Completed)
+                    .Select(w => w.EpisodeId!.Value)
+                    .ToListAsync())
+                .ToHashSet();
+        }
+    }
+    
+    private async Task CheckMovieWatched()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        var userIdStr = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(userIdStr, out var userId))
+        {
+            IsMovieWatched = await Db.WatchHistories
+                .AnyAsync(w => w.UserId == userId && w.MovieId == Movie!.MovieId && w.Completed);
+        }
+    }
+    
     private void CacheImageUrls()
     {
         if (Movie != null)
@@ -274,20 +310,18 @@
     private void FilterEpisodesBySeason()
     {
         if (Episodes == null) return;
-        
-        FilteredEpisodes = SelectedSeason.HasValue 
-            ? Episodes.Where(e => e.SeasonNumber == SelectedSeason.Value)
-                     .OrderBy(e => e.EpisodeNumber)
-                     .ToList()
-            : Episodes.OrderBy(e => e.SeasonNumber)
-                     .ThenBy(e => e.EpisodeNumber)
-                     .ToList();
+
+        FilteredEpisodes = Episodes
+            .Where(e => e.SeasonNumber == SelectedSeason)
+            .OrderBy(e => e.EpisodeNumber)
+            .ToList();
     }
 
-    private void OnSeasonChanged(int? season)
+    private void OnSeasonChanged(int season)
     {
         SelectedSeason = season;
         FilterEpisodesBySeason();
+        StateHasChanged();
     }
 }
 
@@ -296,7 +330,7 @@
     <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
         <MudStack AlignItems="AlignItems.Center" Spacing="4">
             <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
-            <MudText Typo="Typo.h6">Loading media details...</MudText>
+            <MudText Typo="Typo.h6">Caricando i dettagli multimediali...</MudText>
         </MudStack>
     </MudContainer>
 }
@@ -304,7 +338,7 @@ else if (!string.IsNullOrEmpty(ErrorMessage))
 {
     <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
-            <MudText Typo="Typo.h6">Error Loading Media</MudText>
+            <MudText Typo="Typo.h6">Errore nel caricamento</MudText>
             <MudText>@ErrorMessage</MudText>
         </MudAlert>
     </MudContainer>
@@ -319,8 +353,7 @@ else if (Movie != null)
                 <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
                     <img src="@_cachedBackdropUrl" 
                          alt="@Movie.Title backdrop"
-                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"
-                         onerror="console.error('Backdrop image failed to load:', '@_cachedBackdropUrl'); this.style.display='none';" />
+                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"/>
                     <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%); z-index: 2;"></div>
                 </div>
             }
@@ -334,8 +367,7 @@ else if (Movie != null)
                             <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px; position: relative; z-index: 11;">
                                 <img src="@_cachedPosterUrl" 
                                      alt="@Movie.Title poster"
-                                     style="width: 100%; height: auto; display: block;"
-                                     onerror="console.error('Poster image failed to load:', '@_cachedPosterUrl'); this.parentElement.style.display='none';" />
+                                     style="width: 100%; height: auto; display: block;"/>
                             </MudPaper>
                         }
                         else
@@ -343,7 +375,7 @@ else if (Movie != null)
                             <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; background-color: rgba(245, 245, 245, 0.9); max-width: 250px; backdrop-filter: blur(10px); position: relative; z-index: 11;">
                                 <MudStack AlignItems="AlignItems.Center" Spacing="2">
                                     <MudIcon Icon="@Icons.Material.Filled.Movie" Size="Size.Large" Color="Color.Default" />
-                                    <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
+                                    <MudText Typo="Typo.body2" Color="Color.Default">Nessun poster</MudText>
                                 </MudStack>
                             </MudPaper>
                         }
@@ -396,22 +428,22 @@ else if (Movie != null)
                                 }
                             </MudStack>
 
-                            <MudStack Row="true" Spacing="3">
-                                <MudButton Variant="Variant.Filled" 
-                                           Color="Color.Primary" 
+                            <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Primary"
                                            Size="Size.Large"
                                            StartIcon="@Icons.Material.Filled.PlayArrow"
                                            OnClick="@PlayMovie"
                                            Style="backdrop-filter: blur(10px); position: relative; z-index: 12;">
-                                    Play Movie
+                                    Riproduci
                                 </MudButton>
-                                
-                                <MudButton Variant="Variant.Outlined" 
-                                           Color="Color.Surface"
-                                           StartIcon="@Icons.Material.Filled.Add"
-                                           Style="backdrop-filter: blur(10px); border-color: rgba(255,255,255,0.5); color: white; position: relative; z-index: 12;">
-                                    Watchlist
-                                </MudButton>
+                                @if (IsMovieWatched)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                             Color="Color.Success"
+                                             Size="Size.Medium"
+                                             Style="margin-left: 8px;" />
+                                }
                             </MudStack>
                         </MudStack>
                     </MudItem>
@@ -428,7 +460,7 @@ else if (Movie != null)
                         <CardHeaderContent>
                             <MudText Typo="Typo.h6">
                                 <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />
-                                Overview
+                                Descrizione
                             </MudText>
                         </CardHeaderContent>
                     </MudCardHeader>
@@ -437,90 +469,6 @@ else if (Movie != null)
                     </MudCardContent>
                 </MudCard>
             }
-
-            @* Movie Details Card *@
-            <MudCard Elevation="4">
-                <MudCardHeader>
-                    <CardHeaderContent>
-                        <MudText Typo="Typo.h6">
-                            <MudIcon Icon="@Icons.Material.Filled.Info" Class="me-2" />
-                            Movie Information
-                        </MudText>
-                    </CardHeaderContent>
-                </MudCardHeader>
-                <MudCardContent>
-                    <MudGrid>
-                        <MudItem xs="12" sm="6" lg="4">
-                            <MudStack Spacing="1">
-                                <MudText Typo="Typo.caption" Color="Color.Default">
-                                    <MudIcon Icon="@Icons.Material.Filled.Title" Size="Size.Small" Class="me-1" />
-                                    Original Title
-                                </MudText>
-                                <MudText Typo="Typo.body2">@(MovieDetail?.Title ?? Movie.Title)</MudText>
-                            </MudStack>
-                        </MudItem>
-                        
-                        @if (Movie.ReleaseDate.HasValue)
-                        {
-                            <MudItem xs="12" sm="6" lg="4">
-                                <MudStack Spacing="1">
-                                    <MudText Typo="Typo.caption" Color="Color.Default">
-                                        <MudIcon Icon="@Icons.Material.Filled.CalendarToday" Size="Size.Small" Class="me-1" />
-                                        Release Date
-                                    </MudText>
-                                    <MudText Typo="Typo.body2">@Movie.ReleaseDate.Value.ToString("MMMM dd, yyyy")</MudText>
-                                </MudStack>
-                            </MudItem>
-                        }
-                        
-                        @if (MovieDetail?.Runtime.HasValue == true || Movie.DurationMinutes.HasValue)
-                        {
-                            <MudItem xs="12" sm="6" lg="4">
-                                <MudStack Spacing="1">
-                                    <MudText Typo="Typo.caption" Color="Color.Default">
-                                        <MudIcon Icon="@Icons.Material.Filled.AccessTime" Size="Size.Small" Class="me-1" />
-                                        Runtime
-                                    </MudText>
-                                    <MudText Typo="Typo.body2">@GetRuntimeText(MovieDetail?.Runtime ?? Movie.DurationMinutes)</MudText>
-                                </MudStack>
-                            </MudItem>
-                        }
-                        
-                        <MudItem xs="12" sm="6" lg="4">
-                            <MudStack Spacing="1">
-                                <MudText Typo="Typo.caption" Color="Color.Default">
-                                    <MudIcon Icon="@Icons.Material.Filled.Badge" Size="Size.Small" Class="me-1" />
-                                    TMDB ID
-                                </MudText>
-                                <MudText Typo="Typo.body2">@Movie.TmdbId</MudText>
-                            </MudStack>
-                        </MudItem>
-
-                        @if (Movie.MediaFiles?.Any() == true)
-                        {
-                            <MudItem xs="12" sm="6" lg="4">
-                                <MudStack Spacing="1">
-                                    <MudText Typo="Typo.caption" Color="Color.Default">
-                                        <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="me-1" />
-                                        Media Files
-                                    </MudText>
-                                    <MudText Typo="Typo.body2">@Movie.MediaFiles.Count file@(Movie.MediaFiles.Count > 1 ? "s" : "") available</MudText>
-                                </MudStack>
-                            </MudItem>
-                        }
-
-                        <MudItem xs="12" sm="6" lg="4">
-                            <MudStack Spacing="1">
-                                <MudText Typo="Typo.caption" Color="Color.Default">
-                                    <MudIcon Icon="@Icons.Material.Filled.Category" Size="Size.Small" Class="me-1" />
-                                    Type
-                                </MudText>
-                                <MudText Typo="Typo.body2">Movie</MudText>
-                            </MudStack>
-                        </MudItem>
-                    </MudGrid>
-                </MudCardContent>
-            </MudCard>
         </MudContainer>
     </MudContainer>
 }
@@ -534,8 +482,7 @@ else if (Series != null)
                 <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">
                     <img src="@_cachedBackdropUrl"
                          alt="@Series.Title backdrop"
-                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"
-                         onerror="console.error('Backdrop image failed to load:', '@_cachedBackdropUrl'); this.style.display='none';" />
+                         style="width: 100%; height: 100%; object-fit: cover; object-position: center top;"/>
                     <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%); z-index: 2;"></div>
                 </div>
             }
@@ -549,8 +496,7 @@ else if (Series != null)
                             <MudPaper Elevation="8" Class="pa-0" Style="border-radius: 12px; overflow: hidden; max-width: 250px; position: relative; z-index: 11;">
                                 <img src="@_cachedPosterUrl" 
                                      alt="@Series.Title poster"
-                                     style="width: 100%; height: auto; display: block;"
-                                     onerror="console.error('Poster image failed to load:', '@_cachedPosterUrl'); this.parentElement.style.display='none';" />
+                                     style="width: 100%; height: auto; display: block;"/>
                             </MudPaper>
                         }
                         else
@@ -558,7 +504,7 @@ else if (Series != null)
                             <MudPaper Elevation="8" Height="375px" Class="d-flex align-center justify-center" Style="border-radius: 12px; backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8); max-width: 250px; position: relative; z-index: 11;">
                                 <MudStack AlignItems="AlignItems.Center" Spacing="2">
                                     <MudIcon Icon="@Icons.Material.Filled.Tv" Size="Size.Large" Color="Color.Default" />
-                                    <MudText Typo="Typo.body2" Color="Color.Default">No Poster</MudText>
+                                    <MudText Typo="Typo.body2" Color="Color.Default">Nessun poster</MudText>
                                 </MudStack>
                             </MudPaper>
                         }
@@ -581,13 +527,13 @@ else if (Series != null)
                             </div>
 
                             <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
-                                @if (SeriesDetail?.NumberOfSeasons > 0)
+                                @if (AvailableSeasons?.Count > 0)
                                 {
                                     <MudChip T="string" Icon="@Icons.Material.Filled.Tv" 
                                              Color="Color.Primary" 
                                              Variant="Variant.Filled"
                                              Style="backdrop-filter: blur(10px); background-color: rgba(25, 118, 210, 0.8);">
-                                        @SeriesDetail.NumberOfSeasons Season@(SeriesDetail.NumberOfSeasons > 1 ? "s" : "")
+                                        @AvailableSeasons.Count Stagion@(AvailableSeasons.Count > 1 ? "i" : "e")
                                     </MudChip>
                                 }
                                 
@@ -597,7 +543,7 @@ else if (Series != null)
                                              Color="Color.Secondary" 
                                              Variant="Variant.Filled"
                                              Style="backdrop-filter: blur(10px); background-color: rgba(156, 39, 176, 0.8);">
-                                        @Episodes.Count Episode@(Episodes.Count > 1 ? "s" : "")
+                                        @Episodes.Count Episodi@(Episodes.Count > 1 ? "" : "o")
                                     </MudChip>
                                 }
                             </MudStack>
@@ -616,7 +562,7 @@ else if (Series != null)
                         <CardHeaderContent>
                             <MudText Typo="Typo.h6">
                                 <MudIcon Icon="@Icons.Material.Filled.Description" Class="me-2" />
-                                Overview
+                                Descrizione
                             </MudText>
                         </CardHeaderContent>
                     </MudCardHeader>
@@ -629,74 +575,92 @@ else if (Series != null)
             @* Episodes Table *@
             @if (Episodes?.Any() == true)
             {
-                <MudCard Elevation="4">
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.h6">
-                                <MudIcon Icon="@Icons.Material.Filled.PlaylistPlay" Class="me-2" />
-                                Episodes (@Episodes.Count)
-                            </MudText>
-                        </CardHeaderContent>
-                    </MudCardHeader>
-                    <MudCardContent Class="pa-0">
-                        <MudTable Items="FilteredEpisodes" 
-                                  Hover="true" 
-                                  Dense="true"
-                                  FixedHeader="true"
-                                  Height="500px"
-                                  Elevation="0">
-                            <HeaderContent>
-                                <MudTh>Season</MudTh>
-                                <MudTh>Episode</MudTh>
-                                <MudTh>Title</MudTh>
-                                @if (FilteredEpisodes?.Any(e => e.DurationMinutes.HasValue) == true)
-                                {
-                                    <MudTh>Duration</MudTh>
-                                }
-                                <MudTh Style="width: 100px;">Action</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Season">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
-                                        @( $"S{context.SeasonNumber:D2}")
-                                    </MudChip>
-                                </MudTd>
-                                <MudTd DataLabel="Episode">
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Text">
-                                        @( $"S{context.EpisodeNumber:D2}")
-                                    </MudChip>
-                                </MudTd>
-                                <MudTd DataLabel="Title">
-                                    <MudText Typo="Typo.body2">@context.Title</MudText>
-                                </MudTd>
-                                @if (Episodes?.Any(e => e.DurationMinutes.HasValue) == true)
-                                {
-                                    <MudTd DataLabel="Duration">
-                                        <MudText Typo="Typo.body2" Color="Color.Default">
-                                            @(context.DurationMinutes.HasValue ? GetRuntimeText(context.DurationMinutes) : "-")
-                                        </MudText>
+                @* Season Dropdown *@
+                @if (AvailableSeasons?.Count > 0)
+                {
+                    <MudStack Spacing="2" Class="mb-4">
+                        <MudSelect T="int" Label="Seleziona Stagione"
+                                   Value="SelectedSeason"
+                                   ValueChanged="OnSeasonChanged"
+                                   Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Style="max-width: 200px;">
+                            @foreach (var season in AvailableSeasons)
+                            {
+                                <MudSelectItem T="int" Value="season">
+                                    Stagione @season
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudStack>
+                }
+
+                @* Episodes Table *@
+                @if (FilteredEpisodes?.Any() == true)
+                {
+                    <MudCard Elevation="4" Outlined="true">
+                        <MudCardContent Class="pa-0">
+                            <MudTable Items="FilteredEpisodes"
+                                      Hover="true"
+                                      FixedHeader="true"
+                                      Height="500px"
+                                      Elevation="0">
+                                <HeaderContent>
+                                    <MudTh>Episodi</MudTh>
+                                    @if (FilteredEpisodes?.Any(e => e.DurationMinutes.HasValue) == true)
+                                    {
+                                        <MudTh>Durata</MudTh>
+                                    }
+                                    <MudTh Style="width: 100px;">Riproduci</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Episode">
+                                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                            <MudAvatar Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       Style="font-weight: bold;">
+                                                @(context.EpisodeNumber)
+                                            </MudAvatar>
+                                            <MudText Typo="Typo.body2">
+                                                @context.Title
+                                            </MudText>
+                                            @if (CompletedEpisodeIds.Contains(context.EpisodeId))
+                                            {
+                                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                                         Color="Color.Success"
+                                                         Size="Size.Small"
+                                                         Style="margin-left: 4px;" />
+                                            }
+                                        </MudStack>
                                     </MudTd>
-                                }
-                                <MudTd DataLabel="Action">
-                                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" 
-                                                   Color="Color.Primary" 
-                                                   Size="Size.Small"
-                                                   OnClick="@(() => PlayEpisode(context.EpisodeId))"
-                                                   Title="Play Episode" />
-                                </MudTd>
-                            </RowTemplate>
-                            <PagerContent>
-                                <MudTablePager PageSizeOptions="new int[]{10, 25, 50}" 
-                                               InfoFormat="@("{first_item}-{last_item} of {all_items}")"/>
-                            </PagerContent>
-                        </MudTable>
-                    </MudCardContent>
-                </MudCard>
+                                    @if (FilteredEpisodes?.Any(e => e.DurationMinutes.HasValue) == true)
+                                    {
+                                        <MudTd DataLabel="Duration">
+                                            <MudText Typo="Typo.body2" Color="Color.Default">
+                                                @(context.DurationMinutes.HasValue ? GetRuntimeText(context.DurationMinutes) : "-")
+                                            </MudText>
+                                        </MudTd>
+                                    }
+                                    <MudTd DataLabel="Action">
+                                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Small"
+                                                       OnClick="@(() => PlayEpisode(context.EpisodeId))"/>
+                                    </MudTd>
+                                </RowTemplate>
+                                <PagerContent>
+                                    <MudTablePager PageSizeOptions="new int[] { 10, 25, 50 }"
+                                                   InfoFormat="@("{first_item}-{last_item} of {all_items}")"/>
+                                </PagerContent>
+                            </MudTable>
+                        </MudCardContent>
+                    </MudCard>
+                }
             }
             else
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    <MudText Typo="Typo.body1">No episodes found for this series.</MudText>
+                    <MudText Typo="Typo.body1">Nessun episodio trovato per questa serie.</MudText>
                 </MudAlert>
             }
         </MudContainer>
@@ -707,15 +671,15 @@ else
     <MudContainer MaxWidth="MaxWidth.Large" Class="py-8">
         <MudStack Spacing="4" AlignItems="AlignItems.Center">
             <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">
-                <MudText Typo="Typo.h6">Media Not Found</MudText>
-                <MudText>The requested movie or series could not be found in our database.</MudText>
+                <MudText Typo="Typo.h6">Media non trovato</MudText>
+                <MudText>Il Film o Serie richiesta non è stato trovato nel Database.</MudText>
             </MudAlert>
             
             <MudButton Variant="Variant.Outlined" 
                        Color="Color.Primary"
                        Href="/"
                        StartIcon="@Icons.Material.Filled.Home">
-                Return to Home
+                Ritorna alla Home
             </MudButton>
         </MudStack>
     </MudContainer>

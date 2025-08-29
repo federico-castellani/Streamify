@@ -12,9 +12,9 @@
 <PageTitle>Rimuovi Media</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pa-4">
-    <MudText Typo="Typo.h3">Remove Media</MudText>
+    <MudText Typo="Typo.h5">Rimuovi media</MudText>
     <MudTextField @bind-Value="searchText"
-                  Label="Search movies or series..."
+                  Label="Cerca Film o Serie"
                   Variant="Variant.Outlined"
                   Adornment="Adornment.Start"
                   AdornmentIcon="@Icons.Material.Filled.Search"
@@ -27,7 +27,7 @@
     }
     else
     {
-        <MudText Typo="Typo.h4">Movies</MudText>
+        <MudText Typo="Typo.h5">Film</MudText>
         <MudGrid GutterSize="3">
             @foreach (var movie in FilteredMovies)
             {
@@ -43,7 +43,7 @@
                 </MudItem>
             }
         </MudGrid>
-        <MudText Typo="Typo.h4" Class="mt-4">Series</MudText>
+        <MudText Typo="Typo.h5" Class="mt-4">Serie</MudText>
         <MudGrid GutterSize="3">
             @foreach (var series in FilteredSeries)
             {
@@ -146,9 +146,9 @@
     
     private async void ConfirmRemoveMovie(int movieId)
     {
-        var parameters = new DialogParameters { ["Message"] = "Are you sure you want to delete this movie?" };
+        var parameters = new DialogParameters { ["Message"] = "Confermi la rimozione del film?" };
         var options = new DialogOptions { CloseButton = false, MaxWidth = MaxWidth.Small };
-        var dialog = DialogService.Show<RemoveDialog>("Confirm Delete", parameters, options);
+        var dialog = DialogService.Show<RemoveDialog>("Conferma", parameters, options);
         var result = await dialog.Result;
         if (!result.Canceled)
             await RemoveMovie(movieId);
@@ -165,7 +165,7 @@
             ["Episodes"] = episodes
         };
         var options = new DialogOptions { CloseButton = false, MaxWidth = MaxWidth.Medium };
-        var dialog = DialogService.Show<RemoveSeriesDialog>("Remove Series or Episode", parameters, options);
+        var dialog = DialogService.Show<RemoveSeriesDialog>("Rimuovi serie o episodi", parameters, options);
         var result = await dialog.Result;
 
         if (!result.Canceled)
