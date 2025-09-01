@@ -1,0 +1,10 @@
+services:
+  streamify:
+    image: streamify
+    restart: unless-stopped
+    ports:
+      - 8080:8080
+    volumes:
+      - <DB path>/Db.db:/app/Db.db
+      - <Media path>/Media:/app/wwwroot/Media
+      - <.env path>/.env:/app/.env

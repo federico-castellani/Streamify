@@ -7,6 +7,7 @@
 @using Microsoft.EntityFrameworkCore
 @using Streamify.Components.Layout
 @using Streamify.Data
+@using Streamify.Services
 @using Streamify.Utility
 @inject AuthenticationStateProvider AuthStateProvider
 @implements IDisposable
@@ -118,20 +119,24 @@
                                                    Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="TogglePlayPause"/>
                                 </MudItem>
-                                <MudItem>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Replay10"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Large"
-                                                   Style="background-color: rgba(0,0,0,0.7);"
-                                                   OnClick="() => Seek(-10)"/>
-                                </MudItem>
-                                <MudItem>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Forward10"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Large"
-                                                   Style="background-color: rgba(0,0,0,0.7);"
-                                                   OnClick="() => Seek(10)"/>
-                                </MudItem>
+                                @if (!ShouldHideControlOnNarrowScreen())
+                                {
+                                    <MudItem>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Replay10"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Large"
+                                                       Style="background-color: rgba(0,0,0,0.7);"
+                                                       OnClick="() => Seek(-10)"/>
+                                    </MudItem>
+                                    <MudItem>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Forward10"
+                                                       Color="Color.Primary"
+                                                       Size="Size.Large"
+                                                       Style="background-color: rgba(0,0,0,0.7);"
+                                                       OnClick="() => Seek(10)"/>
+                                    </MudItem>
+                                }
+                                
                                 <MudItem>
                                     <MudText 
                                         Typo="Typo.body1" 
@@ -152,30 +157,35 @@
                                                    Style="background-color: rgba(0,0,0,0.7);"
                                                    OnClick="ToggleMute"/>
                                 </MudItem>
-                                <MudItem>
-                                    <MudSlider T="double"
-                                               Min="0"
-                                               Max="1"
-                                               Step="0.1"
-                                               Value="@volume"
-                                               ValueChanged="OnVolumeChange"
-                                               Color="Color.Primary" />
-                                </MudItem>
-                                @{
+                                
+                                @if (!ShouldHideControlOnNarrowScreen())
+                                {
+                                    <MudItem>
+                                        <MudSlider T="double"
+                                                   Min="0"
+                                                   Max="1"
+                                                   Step="0.1"
+                                                   Value="@volume"
+                                                   ValueChanged="OnVolumeChange"
+                                                   Color="Color.Primary"/>
+                                    </MudItem>
+
                                     var currentIndex = episodes?.FindIndex(e => Slugify.SlugifyUrl(e.Title) == EpisodeSlug) ?? -1;
                                     var hasNextEpisode = episodes != null && currentIndex >= 0 && currentIndex < episodes.Count - 1;
                                     var nextEpisode = hasNextEpisode ? episodes[currentIndex + 1] : null;
+
+                                    @if (hasNextEpisode && nextEpisode != null)
+                                    {
+                                        <MudItem>
+                                            <MudButton Color="Color.Primary"
+                                                       Variant="Variant.Filled"
+                                                       OnClick="() => NavigateToEpisode(nextEpisode)">
+                                                Prossimo Episodio
+                                            </MudButton>
+                                        </MudItem>
+                                    }
                                 }
-                                @if (hasNextEpisode && nextEpisode != null)
-                                {
-                                    <MudItem>
-                                        <MudButton Color="Color.Primary"
-                                                   Variant="Variant.Filled"
-                                                   OnClick="() => NavigateToEpisode(nextEpisode)">
-                                            Prossimo Episodio
-                                        </MudButton>
-                                    </MudItem>
-                                }
+
                                 <MudItem>
                                     <MudIconButton Icon="@Icons.Material.Filled.Fullscreen"
                                                    Color="Color.Primary"
@@ -212,6 +222,7 @@
     private double currentTime = 0;
     private double duration = 0;
     private double volume = 1.0;
+    private double volumeBeforeMute = 1.0;
     private double playbackSpeed = 1.0;
     
     // UI state
@@ -222,6 +233,22 @@
     private Timer? controlsTimer;
     private Timer? cursorTimer;
     private List<Episode>? episodes;
+    
+    private int screenWidth = 0;
+    private const int NARROW_SCREEN_THRESHOLD = 768;
+    private DotNetObjectReference<WatchMedia>? _dotNetRef;
+    
+    private bool ShouldHideControlOnNarrowScreen()
+    {
+        return screenWidth < NARROW_SCREEN_THRESHOLD;
+    }
+
+    [JSInvokable]
+    public void OnBrowserResize(int width)
+    {
+        screenWidth = width;
+        StateHasChanged();
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -244,6 +271,13 @@
         if (firstRender && !string.IsNullOrEmpty(videoPath))
         {
             await JSRuntime.InvokeVoidAsync("initializeVideoPlayer", videoElement);
+        
+            // Get initial screen width and setup resize listener
+            screenWidth = await BrowserService.GetInnerWidth(JSRuntime);
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("browser.onResize", _dotNetRef);
+        
+            StateHasChanged();
         }
     }
 
@@ -481,10 +515,11 @@
     {
         if (isMuted)
         {
-            await OnVolumeChange(0.5);
+            await OnVolumeChange(volumeBeforeMute);
         }
         else
         {
+            volumeBeforeMute = volume;
             await OnVolumeChange(0);
         }
     }
@@ -535,6 +570,7 @@
         controlsTimer?.Dispose();
         cursorTimer?.Dispose();
         watchHistoryTimer?.Dispose();
+        _dotNetRef?.Dispose();
     }
     
     private async Task StartWatchHistoryTimer()
