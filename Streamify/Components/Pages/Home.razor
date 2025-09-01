@@ -153,13 +153,14 @@
     }
     else
     {
-        @if (_continueMovieEntries.Any() || _continueEpisodeEntries.Any())
+        @if (_continueMovieEntries.Any() || _continueEpisodeEntries.Any(e => e.Episode != null && e.Episode.Series != null))
         {
             <MudStack Spacing="1" Class="mb-6">
                 <MudText Typo="Typo.h5">Continua a guardare</MudText>
                 @{
                     // Group episodes by series and take only the last watched episode per series
                     var lastEpisodes = _continueEpisodeEntries
+                        .Where(e => e.Episode != null)
                         .GroupBy(e => e.Episode!.SeriesId)
                         .Select(g => g.OrderByDescending(x => x.LastWatched).First())
                         .ToList();
@@ -449,7 +450,11 @@
 
         var needed = new HashSet<(int tmdbId, string title, bool isSeries)>();
         foreach (var h in _continueMovieEntries) needed.Add((h.Movie!.TmdbId, h.Movie.Title, false));
-        foreach (var h in _continueEpisodeEntries) needed.Add((h.Episode!.Series.TmdbId, h.Episode.Series.Title, true));
+        foreach (var h in _continueEpisodeEntries)
+        {
+            if (h.Episode != null && h.Episode.Series != null)
+                needed.Add((h.Episode.Series.TmdbId, h.Episode.Series.Title, true));
+        }
         foreach (var m in _popularMovies) needed.Add((m.TmdbId, m.Title, false));
         foreach (var s in _popularSeries) needed.Add((s.TmdbId, s.Title, true));
         foreach (var m in _recentMovies) needed.Add((m.TmdbId, m.Title, false));

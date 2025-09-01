@@ -31,7 +31,8 @@
                              Class="max-width-600"
                              Adornment="Adornment.Start"
                              AdornmentIcon="@Icons.Material.Outlined.Search"
-                             CoerceText="true">
+                             CoerceText="true"
+                             SelectOnActivation="false">
                 <ItemTemplate Context="item">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="pa-1">
                         <MudStack Class="mr-2" Style="width:50px">
@@ -347,7 +348,18 @@
         => string.IsNullOrEmpty(_selectedPosterPath) ? null : PosterUrl(_selectedPosterPath, 342);
 
     private async Task<IEnumerable<TmdbSearchResult>> SearchFunc(string value, CancellationToken cancellationToken)
-        => await Tmdb.SearchAsync(value, cancellationToken);
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Array.Empty<TmdbSearchResult>();
+        try
+        {
+            return await Tmdb.SearchAsync(value, cancellationToken);
+        }
+        catch
+        {
+            return Array.Empty<TmdbSearchResult>();
+        }
+    }
 
     private async Task OnSearchSelected(TmdbSearchResult? result)
     {

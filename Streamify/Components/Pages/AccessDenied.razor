@@ -1,0 +1,25 @@
+@page "/access-denied"
+
+<PageTitle>Accesso Negato</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" >
+    <MudPaper Elevation="8" Class="justify-center d-flex" Style="flex-direction: column; align-items: center; padding: 2rem; margin-top: 5rem; text-align: center;">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Large" Color="Color.Error" Class="mb-4"/>
+            <MudText Typo="Typo.h3" Color="Color.Error" Class="mb-3">Accesso Negato</MudText>
+        </MudStack>
+        
+        <MudText Typo="Typo.body1" Class="mb-5 text-center" Style="font-size: 1.25rem;">
+            Non hai il permesso di visualizzare questa pagina.
+        </MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@GoHome" Class="mt-3" Size="Size.Large">
+            Torna alla Home
+        </MudButton>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    [Inject] NavigationManager NavigationManager { get; set; }
+
+    void GoHome() => NavigationManager.NavigateTo("/");
+}

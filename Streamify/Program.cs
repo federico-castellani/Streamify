@@ -31,6 +31,7 @@ builder.Services.AddAuthentication("Cookies")
         options.Cookie.Name = "auth_token";
         options.LoginPath = "/login";
         options.LogoutPath = "/logout";
+        options.AccessDeniedPath = "/access-denied";
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
     });
 

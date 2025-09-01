@@ -261,7 +261,7 @@
             {
                 videoPath = $"/api/media/stream/movie/{MovieSlug}/{Path.GetFileName(mediaFile.FilePath)}";
                 mediaTitle = movie.Title;
-                mediaSubtitle = $"{movie.ReleaseDate?.Year} • Movie";
+                mediaSubtitle = $"{movie.ReleaseDate?.Year} • Film";
 
                 // Get last watched position
                 var userId = await GetUserIdFromClaimsAsync();

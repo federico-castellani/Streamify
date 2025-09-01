@@ -38,11 +38,13 @@ namespace Streamify.Services
         public async Task<List<Series>> GetPopularSeriesAsync()
         {
             var seriesCounts = await _db.WatchHistories
-                .Where(h => h.EpisodeId != null)
+                .Where(h => h.EpisodeId != null && h.Episode != null && h.Episode.SeriesId != null)
                 .GroupBy(h => h.Episode!.SeriesId)
                 .Select(g => new { SeriesId = g.Key, Count = g.Count() })
                 .ToListAsync();
-            var seriesLookup = seriesCounts.ToDictionary(x => x.SeriesId, x => x.Count);
+            var seriesLookup = seriesCounts
+                .Where(x => x.SeriesId != null)
+                .ToDictionary(x => x.SeriesId, x => x.Count);
 
             var allSeries = await _db.Series
                 .Include(s => s.Episodes)

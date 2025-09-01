@@ -18,7 +18,9 @@
     }
     else
     {
-        @if (_continueEntries.Any())
+        @if (IsMovies
+                 ? _continueEntries.Any()
+                 : _continueEntries.Any(e => e.Episode != null && e.Episode.Series != null))
         {
             <MudStack Spacing="1" Class="mb-6">
                 <MudText Typo="Typo.h5">Continua a guardare</MudText>
@@ -219,7 +221,11 @@
             _continueEntries = await DataService.GetContinueEpisodeEntriesAsync(_userId);
             _recentSeries = await DataService.GetRecentSeriesAsync();
             var needed = _series.Select(s => (s.TmdbId, s.Title, true)).ToHashSet();
-            foreach (var h in _continueEntries) needed.Add((h.Episode!.Series.TmdbId, h.Episode.Series.Title, true));
+            foreach (var h in _continueEntries)
+            {
+                if (h.Episode != null && h.Episode.Series != null)
+                    needed.Add((h.Episode.Series.TmdbId, h.Episode.Series.Title, true));
+            }
             foreach (var s in _recentSeries) needed.Add((s.TmdbId, s.Title, true));
             await Meta.LoadMetadataBatchAsync(needed);
         }
