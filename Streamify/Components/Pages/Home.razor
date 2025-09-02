@@ -178,10 +178,12 @@
                 <MudCarousel TData="object"
                              AutoCycle="false"
                              ShowArrows="true"
-                             Style="height: 29em;">
+                             ShowBullets="false"
+                             Style="height: 26em;">
                     @foreach (var slide in slides)
                     {
-                        <MudCarouselItem>
+                        <MudCarouselItem
+                            Style="margin-top: 2em;">
                             <MudGrid GutterSize="3" Justify="Justify.Center">
                                 @foreach (var item in slide)
                                 {
@@ -249,10 +251,12 @@
                                  AutoCycle="@(!isMovieCarouselHovered)"
                                  AutoCycleTime="TimeSpan.FromMilliseconds(2000)"
                                  ShowArrows="true"
-                                 Style="height: 29em;">
+                                 ShowBullets="false"
+                                 Style="height: 26em;">
                         @foreach (var slide in slides)
                         {
-                            <MudCarouselItem>
+                            <MudCarouselItem
+                                Style="margin-top: 2em;">
                                 <MudGrid GutterSize="3" Justify="Justify.Center">
                                     @foreach (var m in slide)
                                     {
@@ -299,10 +303,12 @@
                                  AutoCycle="@(!isSeriesCarouselHovered)"
                                  AutoCycleTime="TimeSpan.FromMilliseconds(2000)"
                                  ShowArrows="true"
-                                 Style="height: 29em;">
+                                 ShowBullets="false"
+                                 Style="height: 26em;">
                         @foreach (var slide in slides)
                         {
-                            <MudCarouselItem>
+                            <MudCarouselItem
+                                Style="margin-top: 2em;">
                                 <MudGrid GutterSize="3" Justify="Justify.Center">
                                     @foreach (var s in slide)
                                     {
