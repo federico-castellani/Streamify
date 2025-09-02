@@ -235,7 +235,7 @@
             <MudStack Spacing="1" Class="mb-6">
                 <MudText Typo="Typo.h5">Film popolari</MudText>
                 @{
-                    var items = _popularMovies.Take(10).ToList();
+                    var items = _popularMovies.Take(20).ToList();
                     
                     var slides = new List<List<Movie>>();
                     for (int i = 0; i < items.Count; i += visibleCount)
@@ -286,7 +286,7 @@
             <MudStack Spacing="1" Class="mb-6">
                 <MudText Typo="Typo.h5">Serie popolari</MudText>
                 @{
-                    var items = _popularSeries.Take(10).ToList();
+                    var items = _popularSeries.Take(20).ToList();
                     var slides = new List<List<Series>>();
                     for (int i = 0; i < items.Count; i += visibleCount)
                     {

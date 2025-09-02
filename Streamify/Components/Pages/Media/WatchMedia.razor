@@ -75,7 +75,15 @@
                 <!-- Center Play/Pause Button (only when controls are visible) -->
                 @if (showControls)
                 {
-                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001;">
+                    <MudContainer 
+                        Style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001; display: flex; align-items: center; justify-content: center; gap: 2em;" >
+                        <MudItem>
+                            <MudIconButton Icon="@Icons.Material.Filled.Replay10"
+                                           Color="Color.Primary"
+                                           Size="Size.Large"
+                                           Style="background-color: rgba(0,0,0,0.7);"
+                                           OnClick="() => Seek(-10)"/>
+                        </MudItem>
                         @if (isPlaying)
                         {
                             <MudIconButton Icon="@Icons.Material.Filled.Pause"
@@ -92,8 +100,14 @@
                                            Style="background-color: rgba(0,0,0,0.7);"
                                            OnClick="TogglePlayPause"/>
                         }
-                        
-                    </div>
+                        <MudItem>
+                            <MudIconButton Icon="@Icons.Material.Filled.Forward10"
+                                           Color="Color.Primary"
+                                           Size="Size.Large"
+                                           Style="background-color: rgba(0,0,0,0.7);"
+                                           OnClick="() => Seek(10)"/>
+                        </MudItem>
+                    </MudContainer>
                 }
 
                 <!-- Bottom Controls -->
@@ -108,35 +122,10 @@
                                Color="Color.Primary"
                                Class="mb-4" />
 
-                    <MudGrid Justify="Justify.SpaceBetween">
+                    <MudGrid Justify="Justify.SpaceBetween" Class="d-flex align-center flex-grow-1">
                         <!-- Left Controls -->
                         <MudItem>
                             <MudGrid Class="d-flex align-center flex-grow-1">
-                                <MudItem>
-                                    <MudIconButton Icon="@(isPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
-                                                   Color="Color.Primary"
-                                                   Size="Size.Large"
-                                                   Style="background-color: rgba(0,0,0,0.7);"
-                                                   OnClick="TogglePlayPause"/>
-                                </MudItem>
-                                @if (!ShouldHideControlOnNarrowScreen())
-                                {
-                                    <MudItem>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Replay10"
-                                                       Color="Color.Primary"
-                                                       Size="Size.Large"
-                                                       Style="background-color: rgba(0,0,0,0.7);"
-                                                       OnClick="() => Seek(-10)"/>
-                                    </MudItem>
-                                    <MudItem>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Forward10"
-                                                       Color="Color.Primary"
-                                                       Size="Size.Large"
-                                                       Style="background-color: rgba(0,0,0,0.7);"
-                                                       OnClick="() => Seek(10)"/>
-                                    </MudItem>
-                                }
-                                
                                 <MudItem>
                                     <MudText 
                                         Typo="Typo.body1" 

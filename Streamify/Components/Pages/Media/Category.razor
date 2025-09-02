@@ -265,7 +265,7 @@
 
     private List<List<object>> GetPopularSlides()
     {
-        var items = IsMovies ? _movies.Cast<object>().Take(10).ToList() : _series.Cast<object>().Take(10).ToList();
+        var items = IsMovies ? _movies.Cast<object>().Take(20).ToList() : _series.Cast<object>().Take(20).ToList();
         var slides = new List<List<object>>();
         for (int i = 0; i < items.Count; i += visibleCount)
         {
